@@ -43,7 +43,7 @@ class BatteryComplicationService : SuspendingComplicationDataSourceService() {
                     text = PlainComplicationText.Builder("$watchLevel%").build(),
                     contentDescription = contentDescription
                 )
-                .setTitle(PlainComplicationText.Builder("P:$phoneLevelSafe%").build())
+                .setTitle(PlainComplicationText.Builder("◙$phoneLevelSafe%").build())
                 .setMonochromaticImage(monochromaticImage)
                 .setTapAction(tapAction)
                 .build()
@@ -56,7 +56,7 @@ class BatteryComplicationService : SuspendingComplicationDataSourceService() {
                     contentDescription = contentDescription
                 )
                 .setText(PlainComplicationText.Builder("$watchLevel%").build())
-                .setTitle(PlainComplicationText.Builder("P:$phoneLevelSafe%").build())
+                .setTitle(PlainComplicationText.Builder("◙$phoneLevelSafe%").build())
                 .setMonochromaticImage(monochromaticImage)
                 .setTapAction(tapAction)
                 .build()
