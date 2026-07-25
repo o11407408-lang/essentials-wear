@@ -246,7 +246,8 @@ class CalendarDataListenerService : WearableListenerService() {
         
         val data = byteArrayOf(
             if (isAdbWifiEnabled) 1 else 0,
-            if (hasPermission) 1 else 0
+            if (hasPermission) 1 else 0,
+            com.sameerasw.essentials.BuildConfig.VERSION_CODE.toByte()
         )
         
         val nodeClient = com.google.android.gms.wearable.Wearable.getNodeClient(context)
