@@ -47,6 +47,7 @@ android {
     useLibrary("wear-sdk")
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
