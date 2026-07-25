@@ -74,15 +74,15 @@ class CalendarDataListenerService : WearableListenerService() {
                 val deviceName = dataMap.getString("device_name", "")
 
                 val travelActive = dataMap.getBoolean("travel_active", false)
-                val travelName = dataMap.getString("travel_name", "") ?: ""
+                val travelName = dataMap.getString("travel_name", "")
                 val travelProgress = dataMap.getFloat("travel_progress", 0f)
-                val travelRemainingTime = dataMap.getString("travel_remaining_time", "") ?: ""
-                val travelRemainingDistance = dataMap.getString("travel_remaining_distance", "") ?: ""
-                val travelIconName = dataMap.getString("travel_icon_name", "") ?: ""
+                val travelRemainingTime = dataMap.getString("travel_remaining_time", "")
+                val travelRemainingDistance = dataMap.getString("travel_remaining_distance", "")
+                val travelIconName = dataMap.getString("travel_icon_name", "")
                 val travelIsPaused = dataMap.getBoolean("travel_is_paused", false)
                 val flashlightPulseEnabled = dataMap.getBoolean("flashlight_pulse_enabled", false)
                 val aodState = dataMap.getInt("aod_state", 0)
-                val watchControlsLayout = dataMap.getString("watch_controls_layout", "") ?: ""
+                val watchControlsLayout = dataMap.getString("watch_controls_layout", "")
                 val tapToWakeEnabled = dataMap.getBoolean("tap_to_wake_enabled", true)
                 val watchSyncSoundModeEnabled = dataMap.getBoolean("watch_sync_sound_mode_enabled", false)
 

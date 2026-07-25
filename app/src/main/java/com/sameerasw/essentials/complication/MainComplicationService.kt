@@ -18,7 +18,7 @@ class MainComplicationService : SuspendingComplicationDataSourceService() {
         return when (type) {
             ComplicationType.SHORT_TEXT -> createComplicationData("#FFFFFFFF", "Theme Color")
             ComplicationType.RANGED_VALUE -> createRangedComplicationData(
-                0xFFFFFFFF.toLong(),
+                0xFFFFFFFF,
                 "Theme Color"
             )
 
