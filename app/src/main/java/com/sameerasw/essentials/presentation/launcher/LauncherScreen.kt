@@ -7,9 +7,7 @@ import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.Orientation
@@ -47,7 +45,6 @@ import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -121,7 +118,6 @@ fun LauncherScreen() {
         }
     }
 
-    // Touch drag with continuous relative movement
     val draggableState = rememberDraggableState { delta ->
         val newOffset = (drawerOffset.value + delta).coerceIn(0f, panelHeightPx)
         scope.launch {
@@ -133,17 +129,22 @@ fun LauncherScreen() {
         focusRequester.requestFocus()
     }
 
+    val currentOffset = drawerOffset.value
+    val isQsExpanded = currentOffset > panelHeightPx * 0.5f
+
     Scaffold(
-        timeText = { EssentialsTimeText() }
+        timeText = {
+            EssentialsTimeText(
+                showWatchBattery = true,
+                showTime = isQsExpanded
+            )
+        }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .onRotaryScrollEvent { event ->
-                    // Invert crown direction (-verticalScrollPixels)
                     val delta = -event.verticalScrollPixels
-                    
-                    // Clamp accumulator strictly to trigger bounds (0 to triggerThresholdPx)
                     val currentAcc = if (drawerOffset.value == 0f) {
                         (crownAccumulator + delta).coerceIn(0f, triggerThresholdPx)
                     } else if (drawerOffset.value == panelHeightPx) {
@@ -193,7 +194,6 @@ fun LauncherScreen() {
                     .fillMaxSize()
                     .padding(horizontal = 4.dp)
             ) {
-                // "hh:mm" has 5 characters (e.g. 12:45). 0.65f ratio ensures full width fit without overflow
                 val computedFontSize = (maxWidth.value * 0.65f / 3.2f).coerceIn(40f, 68f).sp
                 Text(
                     text = formattedTime,
@@ -210,7 +210,6 @@ fun LauncherScreen() {
             }
 
             // Quick Settings Shade Overlay (pull-down panel)
-            val currentOffset = drawerOffset.value
             if (currentOffset > 0f) {
                 val progress = (currentOffset / panelHeightPx).coerceIn(0f, 1f)
                 val topY = -panelHeightPx + currentOffset
@@ -239,132 +238,84 @@ fun LauncherScreen() {
                             .padding(horizontal = 16.dp, vertical = 20.dp)
                             .alpha(progress)
                     ) {
-                        Text(
-                            text = stringResource(R.string.feature_settings),
-                            style = TextStyle(
-                                fontFamily = GoogleSansFlexRoundedWide,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = lightAccentColor
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             // 1. Android Settings Button
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Button(
-                                    onClick = {
-                                        HapticUtil.performUIHaptic(view)
-                                        try {
-                                            val intent = Intent(Settings.ACTION_SETTINGS).apply {
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (e: Exception) {
-                                            // Fallback
+                            Button(
+                                onClick = {
+                                    HapticUtil.performUIHaptic(view)
+                                    try {
+                                        val intent = Intent(Settings.ACTION_SETTINGS).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                         }
-                                    },
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                        .border(
-                                            BorderStroke(1.dp, lightAccentColor.copy(alpha = 0.5f)),
-                                            CircleShape
-                                        ),
-                                    colors = ButtonDefaults.buttonColors(
-                                        backgroundColor = tonedThemeColor,
-                                        contentColor = Color.White
-                                    ),
-                                    shape = CircleShape
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.rounded_settings_heart_24),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = stringResource(R.string.launcher_open_settings),
-                                    style = TextStyle(
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color.White
-                                    )
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        // Fallback
+                                    }
+                                },
+                                modifier = Modifier.size(56.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    backgroundColor = tonedThemeColor,
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.rounded_settings_heart_24),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(26.dp)
                                 )
                             }
 
                             // 2. Watch Sound Mode Toggle Button
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                val isNormal = watchRingerMode == AudioManager.RINGER_MODE_NORMAL
-                                val soundModeColors = if (!isNormal) {
-                                    ButtonDefaults.buttonColors(
-                                        backgroundColor = lightAccentColor,
-                                        contentColor = Color.Black
-                                    )
-                                } else {
-                                    ButtonDefaults.buttonColors(
-                                        backgroundColor = tonedThemeColor,
-                                        contentColor = Color.White
-                                    )
-                                }
+                            val isNormal = watchRingerMode == AudioManager.RINGER_MODE_NORMAL
+                            val soundModeColors = if (!isNormal) {
+                                ButtonDefaults.buttonColors(
+                                    backgroundColor = lightAccentColor,
+                                    contentColor = Color.Black
+                                )
+                            } else {
+                                ButtonDefaults.buttonColors(
+                                    backgroundColor = tonedThemeColor,
+                                    contentColor = Color.White
+                                )
+                            }
 
-                                val (soundIcon, soundLabelRes) = when (watchRingerMode) {
-                                    AudioManager.RINGER_MODE_VIBRATE -> Pair(R.drawable.rounded_mobile_vibrate_24, R.string.launcher_sound_vibrate)
-                                    AudioManager.RINGER_MODE_SILENT -> Pair(R.drawable.rounded_volume_off_24, R.string.launcher_sound_silent)
-                                    else -> Pair(R.drawable.rounded_volume_up_24, R.string.launcher_sound_normal)
-                                }
+                            val soundIcon = when (watchRingerMode) {
+                                AudioManager.RINGER_MODE_VIBRATE -> R.drawable.rounded_mobile_vibrate_24
+                                AudioManager.RINGER_MODE_SILENT -> R.drawable.rounded_volume_off_24
+                                else -> R.drawable.rounded_volume_up_24
+                            }
 
-                                Button(
-                                    onClick = {
-                                        HapticUtil.performUIHaptic(view)
-                                        val nextMode = when (watchRingerMode) {
-                                            AudioManager.RINGER_MODE_NORMAL -> AudioManager.RINGER_MODE_VIBRATE
-                                            AudioManager.RINGER_MODE_VIBRATE -> AudioManager.RINGER_MODE_SILENT
-                                            else -> AudioManager.RINGER_MODE_NORMAL
-                                        }
-                                        try {
-                                            audioManager.ringerMode = nextMode
-                                            watchRingerMode = audioManager.ringerMode
-                                        } catch (e: Exception) {
-                                            // Fallback
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                        .then(
-                                            if (isNormal) Modifier.border(
-                                                BorderStroke(1.dp, lightAccentColor.copy(alpha = 0.5f)),
-                                                CircleShape
-                                            ) else Modifier
-                                        ),
-                                    colors = soundModeColors,
-                                    shape = CircleShape
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = soundIcon),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = stringResource(soundLabelRes),
-                                    style = TextStyle(
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color.White
-                                    )
+                            Button(
+                                onClick = {
+                                    HapticUtil.performUIHaptic(view)
+                                    val nextMode = when (watchRingerMode) {
+                                        AudioManager.RINGER_MODE_NORMAL -> AudioManager.RINGER_MODE_VIBRATE
+                                        AudioManager.RINGER_MODE_VIBRATE -> AudioManager.RINGER_MODE_SILENT
+                                        else -> AudioManager.RINGER_MODE_NORMAL
+                                    }
+                                    try {
+                                        audioManager.ringerMode = nextMode
+                                        watchRingerMode = audioManager.ringerMode
+                                    } catch (e: Exception) {
+                                        // Fallback
+                                    }
+                                },
+                                modifier = Modifier.size(56.dp),
+                                colors = soundModeColors
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = soundIcon),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(26.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(20.dp))
 
                         // Pill handle indicator
                         Box(
