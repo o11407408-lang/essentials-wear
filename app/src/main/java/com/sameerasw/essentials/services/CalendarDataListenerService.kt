@@ -237,6 +237,64 @@ class CalendarDataListenerService : WearableListenerService() {
             sendStatusUpdateToPhone(this)
         } else if (messageEvent.path == "/request_watch_status") {
             sendStatusUpdateToPhone(this)
+        } else if (messageEvent.path == "/watch_notification" || messageEvent.path == "/notification_sync") {
+            val jsonStr = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received watch notification message: $jsonStr")
+            if (jsonStr.isNotBlank()) {
+                handleNotificationPosted(jsonStr)
+            }
+        } else if (messageEvent.path == "/watch_notification_removed") {
+            val key = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received watch notification removed: $key")
+            if (key.isNotBlank()) {
+                handleNotificationRemoved(key)
+            }
+        }
+    }
+
+    private fun handleNotificationPosted(newNotifJson: String) {
+        try {
+            val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            val existingJson = prefs.getString("watch_notifications_json", "[]") ?: "[]"
+            val jsonArray = org.json.JSONArray(existingJson)
+            val newObj = org.json.JSONObject(newNotifJson)
+            val newKey = newObj.optString("key")
+
+            val updatedArray = org.json.JSONArray()
+            updatedArray.put(newObj) // Insert new notification at top
+
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                if (obj.optString("key") != newKey && updatedArray.length() < 30) {
+                    updatedArray.put(obj)
+                }
+            }
+
+            prefs.edit().putString("watch_notifications_json", updatedArray.toString()).apply()
+            sendBroadcast(Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED"))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving synced watch notification", e)
+        }
+    }
+
+    private fun handleNotificationRemoved(keyToRemove: String) {
+        try {
+            val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            val existingJson = prefs.getString("watch_notifications_json", "[]") ?: "[]"
+            val jsonArray = org.json.JSONArray(existingJson)
+            val updatedArray = org.json.JSONArray()
+
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                if (obj.optString("key") != keyToRemove) {
+                    updatedArray.put(obj)
+                }
+            }
+
+            prefs.edit().putString("watch_notifications_json", updatedArray.toString()).apply()
+            sendBroadcast(Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED"))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing synced watch notification", e)
         }
     }
 

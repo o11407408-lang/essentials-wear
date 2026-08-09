@@ -27,4 +27,5 @@
     <string name="launcher_sound_normal">Sound</string>
     <string name="launcher_sound_vibrate">Vibrate</string>
     <string name="launcher_sound_silent">Silent</string>
+    <string name="launcher_notifications_empty">No notifications</string>
 </resources>

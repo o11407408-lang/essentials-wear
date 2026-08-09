@@ -1,7 +1,9 @@
 package com.sameerasw.essentials.presentation.launcher
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioManager
 import android.provider.Settings
 import androidx.compose.animation.core.Animatable
@@ -13,10 +15,12 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,8 +32,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,17 +51,23 @@ import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.items
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
+import com.google.android.gms.wearable.Wearable
 import com.sameerasw.essentials.R
 import com.sameerasw.essentials.presentation.components.EssentialsTimeText
 import com.sameerasw.essentials.presentation.theme.GoogleSansFlexRoundedWide
@@ -63,9 +75,19 @@ import com.sameerasw.essentials.utils.HapticUtil
 import com.sameerasw.essentials.utils.ThemeUtil
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
+
+data class WatchNotificationItem(
+    val key: String,
+    val packageName: String,
+    val appName: String,
+    val title: String,
+    val text: String,
+    val postTime: Long
+)
 
 @Composable
 fun LauncherScreen() {
@@ -99,16 +121,95 @@ fun LauncherScreen() {
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var watchRingerMode by remember { mutableStateOf(audioManager.ringerMode) }
 
-    // Physical heights for QS shade drawer
+    // Physical heights for panels
     val panelHeightPx = 320f
     val triggerThresholdPx = 12f
-    val drawerOffset = remember { Animatable(0f) }
+    
+    // Quick Settings Drawer Offset (pull down from top)
+    val qsDrawerOffset = remember { Animatable(0f) }
+    // Notification Drawer Offset (pull up from bottom)
+    val notifDrawerOffset = remember { Animatable(0f) }
 
     var crownAccumulator by remember { mutableStateOf(0f) }
 
-    fun snapDrawer(targetPx: Float) {
+    // Notifications state
+    val notifications = remember { mutableStateListOf<WatchNotificationItem>() }
+
+    fun loadNotifications() {
+        try {
+            val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString("watch_notifications_json", "[]") ?: "[]"
+            val jsonArray = JSONArray(jsonStr)
+            notifications.clear()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                notifications.add(
+                    WatchNotificationItem(
+                        key = obj.getString("key"),
+                        packageName = obj.optString("packageName", ""),
+                        appName = obj.optString("appName", ""),
+                        title = obj.optString("title", ""),
+                        text = obj.optString("text", ""),
+                        postTime = obj.optLong("postTime", System.currentTimeMillis())
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            // Fallback
+        }
+    }
+
+    fun dismissNotificationOnPhoneAndWatch(key: String) {
+        // Remove locally from state and SharedPrefs
+        try {
+            val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+            val existingJson = prefs.getString("watch_notifications_json", "[]") ?: "[]"
+            val jsonArray = JSONArray(existingJson)
+            val updatedArray = JSONArray()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                if (obj.optString("key") != key) {
+                    updatedArray.put(obj)
+                }
+            }
+            prefs.edit().putString("watch_notifications_json", updatedArray.toString()).apply()
+            loadNotifications()
+        } catch (e: Exception) {}
+
+        // Send dismissal request back to phone companion
+        val nodeClient = Wearable.getNodeClient(context)
+        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
+            if (nodes.isEmpty()) return@addOnSuccessListener
+            val messageClient = Wearable.getMessageClient(context)
+            for (node in nodes) {
+                messageClient.sendMessage(node.id, "/dismiss_phone_notification", key.toByteArray())
+            }
+        }
+    }
+
+    DisposableEffect(context) {
+        loadNotifications()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                loadNotifications()
+            }
+        }
+        val filter = IntentFilter("com.sameerasw.essentials.NOTIFICATIONS_UPDATED")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, filter)
+        }
+        onDispose {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (e: Exception) {}
+        }
+    }
+
+    fun snapQsDrawer(targetPx: Float) {
         scope.launch {
-            drawerOffset.animateTo(
+            qsDrawerOffset.animateTo(
                 targetValue = targetPx,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -118,10 +219,30 @@ fun LauncherScreen() {
         }
     }
 
-    val draggableState = rememberDraggableState { delta ->
-        val newOffset = (drawerOffset.value + delta).coerceIn(0f, panelHeightPx)
+    fun snapNotifDrawer(targetPx: Float) {
         scope.launch {
-            drawerOffset.snapTo(newOffset)
+            notifDrawerOffset.animateTo(
+                targetValue = targetPx,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+        }
+    }
+
+    // Touch drag states
+    val qsDraggableState = rememberDraggableState { delta ->
+        if (notifDrawerOffset.value == 0f) {
+            val newOffset = (qsDrawerOffset.value + delta).coerceIn(0f, panelHeightPx)
+            scope.launch { qsDrawerOffset.snapTo(newOffset) }
+        }
+    }
+
+    val notifDraggableState = rememberDraggableState { delta ->
+        if (qsDrawerOffset.value == 0f) {
+            val newOffset = (notifDrawerOffset.value - delta).coerceIn(0f, panelHeightPx)
+            scope.launch { notifDrawerOffset.snapTo(newOffset) }
         }
     }
 
@@ -129,14 +250,18 @@ fun LauncherScreen() {
         focusRequester.requestFocus()
     }
 
-    val currentOffset = drawerOffset.value
-    val isQsExpanded = currentOffset > panelHeightPx * 0.5f
+    val currentQsOffset = qsDrawerOffset.value
+    val currentNotifOffset = notifDrawerOffset.value
+    val isQsExpanded = currentQsOffset > panelHeightPx * 0.5f
+    val isNotifExpanded = currentNotifOffset > panelHeightPx * 0.5f
+
+    val notifListState = rememberScalingLazyListState()
 
     Scaffold(
         timeText = {
             EssentialsTimeText(
                 showWatchBattery = true,
-                showTime = isQsExpanded
+                showTime = isQsExpanded || isNotifExpanded
             )
         }
     ) {
@@ -145,49 +270,82 @@ fun LauncherScreen() {
                 .fillMaxSize()
                 .onRotaryScrollEvent { event ->
                     val delta = -event.verticalScrollPixels
-                    val currentAcc = if (drawerOffset.value == 0f) {
-                        (crownAccumulator + delta).coerceIn(0f, triggerThresholdPx)
-                    } else if (drawerOffset.value == panelHeightPx) {
-                        (crownAccumulator + delta).coerceIn(-triggerThresholdPx, 0f)
-                    } else {
-                        crownAccumulator + delta
-                    }
-                    crownAccumulator = currentAcc
 
-                    if (drawerOffset.value < panelHeightPx / 2) {
+                    if (isNotifExpanded) {
+                        // Scroll list when Notification shade is open
+                        scope.launch {
+                            notifListState.scrollBy(event.verticalScrollPixels)
+                        }
+                        true
+                    } else if (currentNotifOffset == 0f && currentQsOffset == 0f) {
+                        // Both closed: Crown Down (delta > 0) -> Open QS, Crown Up (delta < 0) -> Open Notifications
+                        crownAccumulator += delta
                         if (crownAccumulator >= triggerThresholdPx) {
                             HapticUtil.performUIHaptic(view)
-                            snapDrawer(panelHeightPx)
+                            snapQsDrawer(panelHeightPx)
+                            crownAccumulator = 0f
+                        } else if (crownAccumulator <= -triggerThresholdPx) {
+                            HapticUtil.performUIHaptic(view)
+                            snapNotifDrawer(panelHeightPx)
                             crownAccumulator = 0f
                         }
-                    } else {
+                        true
+                    } else if (currentQsOffset > 0f) {
+                        // QS open: Crown Up (delta < 0) -> Close QS
+                        crownAccumulator += delta
                         if (crownAccumulator <= -triggerThresholdPx) {
                             HapticUtil.performUIHaptic(view)
-                            snapDrawer(0f)
+                            snapQsDrawer(0f)
                             crownAccumulator = 0f
                         }
+                        true
+                    } else if (currentNotifOffset > 0f) {
+                        // Notif open: Crown Down (delta > 0) -> Close Notifications
+                        crownAccumulator += delta
+                        if (crownAccumulator >= triggerThresholdPx) {
+                            HapticUtil.performUIHaptic(view)
+                            snapNotifDrawer(0f)
+                            crownAccumulator = 0f
+                        }
+                        true
+                    } else {
+                        false
                     }
-                    true
                 }
                 .focusRequester(focusRequester)
                 .focusable()
                 .draggable(
-                    state = draggableState,
+                    state = qsDraggableState,
                     orientation = Orientation.Vertical,
                     onDragStopped = { velocity ->
                         HapticUtil.performUIHaptic(view)
                         crownAccumulator = 0f
-                        if (velocity > 150f || (velocity >= 0f && drawerOffset.value > panelHeightPx * 0.35f)) {
-                            snapDrawer(panelHeightPx)
-                        } else if (velocity < -150f || (velocity <= 0f && drawerOffset.value <= panelHeightPx * 0.65f)) {
-                            snapDrawer(0f)
+                        if (velocity > 150f || (velocity >= 0f && qsDrawerOffset.value > panelHeightPx * 0.35f)) {
+                            snapQsDrawer(panelHeightPx)
+                        } else if (velocity < -150f || (velocity <= 0f && qsDrawerOffset.value <= panelHeightPx * 0.65f)) {
+                            snapQsDrawer(0f)
                         } else {
-                            if (drawerOffset.value > panelHeightPx / 2) snapDrawer(panelHeightPx) else snapDrawer(0f)
+                            if (qsDrawerOffset.value > panelHeightPx / 2) snapQsDrawer(panelHeightPx) else snapQsDrawer(0f)
+                        }
+                    }
+                )
+                .draggable(
+                    state = notifDraggableState,
+                    orientation = Orientation.Vertical,
+                    onDragStopped = { velocity ->
+                        HapticUtil.performUIHaptic(view)
+                        crownAccumulator = 0f
+                        if (velocity < -150f || (velocity <= 0f && notifDrawerOffset.value > panelHeightPx * 0.35f)) {
+                            snapNotifDrawer(panelHeightPx)
+                        } else if (velocity > 150f || (velocity >= 0f && notifDrawerOffset.value <= panelHeightPx * 0.65f)) {
+                            snapNotifDrawer(0f)
+                        } else {
+                            if (notifDrawerOffset.value > panelHeightPx / 2) snapNotifDrawer(panelHeightPx) else snapNotifDrawer(0f)
                         }
                     }
                 )
         ) {
-            // Main Clock: Scales accurately based on screen width to fit perfectly without overflow
+            // Main Clock Display
             BoxWithConstraints(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -195,24 +353,26 @@ fun LauncherScreen() {
                     .padding(horizontal = 4.dp)
             ) {
                 val computedFontSize = (maxWidth.value * 0.65f / 3.2f).coerceIn(40f, 68f).sp
-                Text(
-                    text = formattedTime,
-                    style = TextStyle(
-                        fontFamily = GoogleSansFlexRoundedWide,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = computedFontSize,
-                        color = lightAccentColor,
-                        textAlign = TextAlign.Center
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 1
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = formattedTime,
+                        style = TextStyle(
+                            fontFamily = GoogleSansFlexRoundedWide,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = computedFontSize,
+                            color = lightAccentColor,
+                            textAlign = TextAlign.Center
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 1
+                    )
+                }
             }
 
-            // Quick Settings Shade Overlay (pull-down panel)
-            if (currentOffset > 0f) {
-                val progress = (currentOffset / panelHeightPx).coerceIn(0f, 1f)
-                val topY = -panelHeightPx + currentOffset
+            // Quick Settings Shade Overlay (pull-down panel from top)
+            if (currentQsOffset > 0f) {
+                val progress = (currentQsOffset / panelHeightPx).coerceIn(0f, 1f)
+                val topY = -panelHeightPx + currentQsOffset
 
                 Box(
                     modifier = Modifier
@@ -226,7 +386,7 @@ fun LauncherScreen() {
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         ) {
                             HapticUtil.performUIHaptic(view)
-                            snapDrawer(0f)
+                            snapQsDrawer(0f)
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -327,9 +487,129 @@ fun LauncherScreen() {
                                 )
                                 .clickable {
                                     HapticUtil.performUIHaptic(view)
-                                    snapDrawer(0f)
+                                    snapQsDrawer(0f)
                                 }
                         )
+                    }
+                }
+            }
+
+            // Notification Shade Overlay (pull-up panel from bottom)
+            if (currentNotifOffset > 0f) {
+                val progress = (currentNotifOffset / panelHeightPx).coerceIn(0f, 1f)
+                val bottomY = panelHeightPx - currentNotifOffset
+
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(0, bottomY.roundToInt()) }
+                        .fillMaxWidth()
+                        .height(panelHeightPx.dp)
+                        .background(Color.Black.copy(alpha = 0.95f * progress))
+                        .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp, vertical = 12.dp)
+                            .alpha(progress)
+                    ) {
+                        // Top Pill handle indicator for dismiss
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 4.dp, bottom = 8.dp)
+                                .size(width = 36.dp, height = 4.dp)
+                                .background(
+                                    color = Color.White.copy(alpha = 0.4f),
+                                    shape = CircleShape
+                                )
+                                .clickable {
+                                    HapticUtil.performUIHaptic(view)
+                                    snapNotifDrawer(0f)
+                                }
+                        )
+
+                        if (notifications.isEmpty()) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.launcher_notifications_empty),
+                                    style = TextStyle(
+                                        fontFamily = GoogleSansFlexRoundedWide,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 14.sp,
+                                        color = Color.Gray,
+                                        textAlign = TextAlign.Center
+                                    )
+                                )
+                            }
+                        } else {
+                            ScalingLazyColumn(
+                                state = notifListState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(vertical = 8.dp)
+                            ) {
+                                items(notifications, key = { it.key }) { notif ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .background(
+                                                color = Color(0xFF1E1E1E),
+                                                shape = RoundedCornerShape(24.dp)
+                                            )
+                                            .clickable {
+                                                HapticUtil.performUIHaptic(view)
+                                                dismissNotificationOnPhoneAndWatch(notif.key)
+                                            }
+                                            .padding(12.dp)
+                                    ) {
+                                        Column {
+                                            if (notif.appName.isNotBlank()) {
+                                                Text(
+                                                    text = notif.appName,
+                                                    style = TextStyle(
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        fontSize = 11.sp,
+                                                        color = lightAccentColor
+                                                    ),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                            }
+                                            if (notif.title.isNotBlank()) {
+                                                Text(
+                                                    text = notif.title,
+                                                    style = TextStyle(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp,
+                                                        color = Color.White
+                                                    ),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            if (notif.text.isNotBlank()) {
+                                                Text(
+                                                    text = notif.text,
+                                                    style = TextStyle(
+                                                        fontSize = 12.sp,
+                                                        color = Color.LightGray
+                                                    ),
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.padding(top = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
