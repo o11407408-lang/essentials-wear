@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.scrollBy
@@ -51,6 +52,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -62,6 +64,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyRowItems
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.ScalingLazyListState
 import androidx.wear.compose.foundation.lazy.items
@@ -304,7 +308,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 android.util.Log.d("LauncherScreen", "Notification broadcast received")
                 val newNotifJson = intent?.getStringExtra("new_notification_json")
-                if (newNotifJson != null && pagerState.currentPage <= 1) {
+                if (newNotifJson != null) {
                     try {
                         val obj = org.json.JSONObject(newNotifJson)
                         val pkg = obj.optString("packageName", "")
@@ -313,7 +317,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
                         val iconsObj = org.json.JSONObject(iconsJsonStr)
                         val iconBase64 = iconsObj.optString(pkg, "")
 
-                        activeNewNotification = WatchNotificationItem(
+                        val item = WatchNotificationItem(
                             key = obj.getString("key"),
                             packageName = pkg,
                             appName = obj.optString("appName", ""),
@@ -324,14 +328,23 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
                             isMedia = obj.optBoolean("isMedia", false),
                             canReply = obj.optBoolean("canReply", false)
                         )
-                        overlayTimeoutKey++
-                        playNotificationSound(context)
-                        android.util.Log.d("LauncherScreen", "Showing new notification overlay")
+
+                        if (!item.isMedia) {
+                            if (pagerState.currentPage <= 1) {
+                                activeNewNotification = item
+                                overlayTimeoutKey++
+                                playNotificationSound(context)
+                                android.util.Log.d("LauncherScreen", "Showing new notification overlay")
+                            } else {
+                                // Drawer is open, play sound only for regular notifications
+                                playNotificationSound(context)
+                            }
+                        } else {
+                            android.util.Log.d("LauncherScreen", "Media notification received - skipping overlay/sound")
+                        }
                     } catch (e: Exception) {
                         android.util.Log.e("LauncherScreen", "Error parsing notification JSON", e)
                     }
-                } else if (newNotifJson != null) {
-                    playNotificationSound(context)
                 }
                 loadNotifications()
             }
@@ -588,6 +601,13 @@ fun NotificationsPage(
 ) {
     val view = LocalView.current
     
+    val mediaNotifications = remember(notifications) {
+        notifications.filter { it.isMedia }.sortedByDescending { it.postTime }
+    }
+    val regularNotifications = remember(notifications) {
+        notifications.filter { !it.isMedia }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -620,12 +640,35 @@ fun NotificationsPage(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 32.dp)
                 ) {
-                    items(notifications, key = { it.key }) { notif ->
+                    if (mediaNotifications.isNotEmpty()) {
+                        item {
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                lazyRowItems(mediaNotifications, key = { it.key }) { notif ->
+                                    WatchNotificationCardItem(
+                                        notif = notif,
+                                        lightAccentColor = lightAccentColor,
+                                        onDismiss = onDismiss,
+                                        onSelectDetail = onSelectDetail,
+                                        isHorizontal = true
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    items(regularNotifications, key = { it.key }) { notif ->
                         WatchNotificationCardItem(
                             notif = notif,
                             lightAccentColor = lightAccentColor,
                             onDismiss = onDismiss,
-                            onSelectDetail = onSelectDetail
+                            onSelectDetail = onSelectDetail,
+                            isHorizontal = false
                         )
                     }
 
@@ -671,7 +714,8 @@ fun WatchNotificationCardItem(
     notif: WatchNotificationItem,
     lightAccentColor: Color,
     onDismiss: (String) -> Unit,
-    onSelectDetail: (WatchNotificationItem) -> Unit
+    onSelectDetail: (WatchNotificationItem) -> Unit,
+    isHorizontal: Boolean = false
 ) {
     val view = LocalView.current
     var offsetX by remember { mutableStateOf(0f) }
@@ -681,11 +725,15 @@ fun WatchNotificationCardItem(
 
     val cardBg = if (notif.isMedia) Color(0xFF231B2B) else Color(0xFF1E1E1E)
     val borderColor = if (notif.isMedia) lightAccentColor.copy(alpha = 0.35f) else Color.Transparent
+    
+    val baseModifier = if (isHorizontal) {
+        Modifier.width(155.dp)
+    } else {
+        Modifier.fillMaxWidth()
+    }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
+    val interactiveModifier = if (!notif.isMedia) {
+        baseModifier
             .graphicsLayer { translationX = offsetX }
             .draggable(
                 state = swipeState,
@@ -699,6 +747,13 @@ fun WatchNotificationCardItem(
                     }
                 }
             )
+    } else {
+        baseModifier
+    }
+
+    Box(
+        modifier = interactiveModifier
+            .padding(vertical = 4.dp)
             .background(color = cardBg, shape = RoundedCornerShape(24.dp))
             .border(
                 width = if (notif.isMedia) 1.dp else 0.dp,
@@ -789,108 +844,136 @@ fun NewNotificationOverlay(
     val view = LocalView.current
     val scrollState = rememberScalingLazyListState()
 
-    val swipeDownState = rememberDraggableState { delta ->
-        if (delta > 20f) { onDismissOverlay() }
-    }
-
-    val swipeHorizontalState = rememberDraggableState { delta ->
-        if (kotlin.math.abs(delta) > 30f) {
-            HapticUtil.performUIHaptic(view)
-            onDismissNotification()
-        }
-    }
+    var totalDragX by remember { mutableStateOf(0f) }
+    var totalDragY by remember { mutableStateOf(0f) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .clickable(enabled = false) {}
-            .draggable(state = swipeDownState, orientation = Orientation.Vertical, onDragStopped = { onInteraction() })
-            .draggable(state = swipeHorizontalState, orientation = Orientation.Horizontal, onDragStopped = { onInteraction() }),
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = {
+                        totalDragX = 0f
+                        totalDragY = 0f
+                    },
+                    onDragEnd = {
+                        if (totalDragY > 100f) {
+                            onDismissOverlay()
+                        } else if (kotlin.math.abs(totalDragX) > 100f) {
+                            HapticUtil.performUIHaptic(view)
+                            onDismissNotification()
+                        }
+                        onInteraction()
+                    },
+                    onDragCancel = {
+                        onInteraction()
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        totalDragX += dragAmount.x
+                        totalDragY += dragAmount.y
+                    }
+                )
+            },
         contentAlignment = Alignment.TopCenter
     ) {
-        Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            EssentialsTimeText(showWatchBattery = true, showTime = true)
-
-            ScalingLazyColumn(
-                state = scrollState,
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)
-            ) {
-                item {
-                    if (notification.iconBase64.isNotBlank()) {
-                        val bitmap = remember(notification.iconBase64) {
-                            try {
-                                val bytes = android.util.Base64.decode(notification.iconBase64, android.util.Base64.NO_WRAP)
-                                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            } catch (e: Exception) { null }
-                        }
-                        bitmap?.let { bmp ->
-                            androidx.compose.foundation.Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp).clip(CircleShape).background(Color(0xFF1E1E1E)).padding(8.dp)
-                            )
-                        }
+        ScalingLazyColumn(
+            state = scrollState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            contentPadding = PaddingValues(top = 28.dp, bottom = 48.dp)
+        ) {
+            item {
+                if (notification.iconBase64.isNotBlank()) {
+                    val bitmap = remember(notification.iconBase64) {
+                        try {
+                            val bytes = android.util.Base64.decode(notification.iconBase64, android.util.Base64.NO_WRAP)
+                            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        } catch (e: Exception) { null }
+                    }
+                    bitmap?.let { bmp ->
+                        androidx.compose.foundation.Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1A1A1A))
+                                .padding(10.dp)
+                        )
                     }
                 }
+            }
+            item {
+                Text(
+                    text = notification.appName.uppercase(),
+                    style = TextStyle(
+                        fontSize = 11.sp,
+                        color = lightAccentColor,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    ),
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+            }
+            item {
+                Text(
+                    text = notification.title.ifBlank { "Notification" },
+                    style = TextStyle(
+                        fontSize = 18.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center
+                    ),
+                    modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)
+                )
+            }
+            item {
+                Text(
+                    text = notification.text,
+                    style = TextStyle(
+                        fontSize = 15.sp,
+                        color = Color.LightGray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    ),
+                    modifier = Modifier.padding(bottom = 20.dp)
+                )
+            }
+            if (notification.canReply) {
                 item {
-                    Text(
-                        text = notification.appName,
-                        style = TextStyle(fontSize = 12.sp, color = lightAccentColor, fontWeight = FontWeight.SemiBold),
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-                item {
-                    Text(
-                        text = notification.title,
-                        style = TextStyle(fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
-                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
-                    )
-                }
-                item {
-                    Text(
-                        text = notification.text,
-                        style = TextStyle(fontSize = 14.sp, color = Color.LightGray, textAlign = TextAlign.Center),
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-                }
-                if (notification.canReply) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .padding(top = 4.dp, bottom = 16.dp)
-                                .background(lightAccentColor, shape = RoundedCornerShape(20.dp))
-                                .clickable {
-                                    HapticUtil.performUIHaptic(view)
-                                    onReply(notification)
-                                }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.rounded_mobile_text_2_24),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = Color.Black
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Reply",
-                                    style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
-                                )
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 4.dp, bottom = 16.dp)
+                            .background(lightAccentColor, shape = RoundedCornerShape(24.dp))
+                            .clickable {
+                                HapticUtil.performUIHaptic(view)
+                                onReply(notification)
                             }
+                            .padding(horizontal = 20.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.rounded_mobile_text_2_24),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = Color.Black
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Reply",
+                                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.Black)
+                            )
                         }
                     }
                 }
             }
         }
-    }
-    
-    LaunchedEffect(scrollState.isScrollInProgress) {
-        if (scrollState.isScrollInProgress) { onInteraction() }
     }
 }
 
