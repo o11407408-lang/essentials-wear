@@ -509,7 +509,7 @@ fun QuickSettingsPage(
             ) {
                 Button(
                     onClick = {
-                        HapticUtil.performUIHaptic(view)
+                        HapticUtil.performPageSwitchHaptic(view)
                         try {
                             val intent = Intent(Settings.ACTION_SETTINGS).apply {
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -552,7 +552,7 @@ fun QuickSettingsPage(
 
                 Button(
                     onClick = {
-                        HapticUtil.performUIHaptic(view)
+                        HapticUtil.performPageSwitchHaptic(view)
                         val nextMode = when (watchRingerMode) {
                             AudioManager.RINGER_MODE_NORMAL -> AudioManager.RINGER_MODE_VIBRATE
                             AudioManager.RINGER_MODE_VIBRATE -> AudioManager.RINGER_MODE_SILENT
@@ -780,14 +780,9 @@ fun WatchNotificationCardItem(
 
     Box(
         modifier = interactiveModifier
-            .padding(vertical = 4.dp)
+            .padding(vertical = 2.dp)
             .background(color = Color(0xFF141414), shape = RoundedCornerShape(24.dp)) // Dark base
             .background(color = cardBg, shape = RoundedCornerShape(24.dp)) // Accent tint
-            .border(
-                width = if (notif.isMedia) 1.dp else 0.dp,
-                color = lightAccentColor.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(24.dp)
-            )
             .clickable {
                 HapticUtil.performUIHaptic(view)
                 onSelectDetail(notif)
@@ -851,7 +846,7 @@ fun WatchNotificationCardItem(
                 Text(
                     text = notif.text,
                     style = TextStyle(fontSize = 12.sp, color = Color.LightGray),
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp)
                 )
