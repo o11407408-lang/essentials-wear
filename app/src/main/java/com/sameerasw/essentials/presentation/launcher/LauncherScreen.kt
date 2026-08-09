@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -47,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -84,6 +86,7 @@ data class WatchNotificationItem(
     val key: String,
     val packageName: String,
     val appName: String,
+    val iconBase64: String = "",
     val title: String,
     val text: String,
     val postTime: Long
@@ -140,14 +143,21 @@ fun LauncherScreen() {
             val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
             val jsonStr = prefs.getString("watch_notifications_json", "[]") ?: "[]"
             val jsonArray = JSONArray(jsonStr)
+            val iconsJsonStr = prefs.getString("watch_app_icons_json", "{}") ?: "{}"
+            val iconsObj = org.json.JSONObject(iconsJsonStr)
+
             notifications.clear()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
+                val pkg = obj.optString("packageName", "")
+                val iconBase64 = iconsObj.optString(pkg, "")
+
                 notifications.add(
                     WatchNotificationItem(
                         key = obj.getString("key"),
-                        packageName = obj.optString("packageName", ""),
+                        packageName = pkg,
                         appName = obj.optString("appName", ""),
+                        iconBase64 = iconBase64,
                         title = obj.optString("title", ""),
                         text = obj.optString("text", ""),
                         postTime = obj.optLong("postTime", System.currentTimeMillis())
@@ -567,21 +577,46 @@ fun LauncherScreen() {
                                             }
                                             .padding(12.dp)
                                     ) {
-                                        Column {
-                                            if (notif.appName.isNotBlank()) {
-                                                Text(
-                                                    text = notif.appName,
-                                                    style = TextStyle(
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        fontSize = 11.sp,
-                                                        color = lightAccentColor
-                                                    ),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                            }
-                                            if (notif.title.isNotBlank()) {
+                                         Column {
+                                             Row(
+                                                 verticalAlignment = Alignment.CenterVertically
+                                             ) {
+                                                 if (notif.iconBase64.isNotBlank()) {
+                                                     val bitmap = remember(notif.iconBase64) {
+                                                         try {
+                                                             val bytes = android.util.Base64.decode(notif.iconBase64, android.util.Base64.NO_WRAP)
+                                                             android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                                         } catch (e: Exception) {
+                                                             null
+                                                         }
+                                                     }
+                                                     bitmap?.let { bmp ->
+                                                         androidx.compose.foundation.Image(
+                                                             bitmap = bmp.asImageBitmap(),
+                                                             contentDescription = null,
+                                                             modifier = Modifier
+                                                                 .size(16.dp)
+                                                                 .clip(CircleShape)
+                                                         )
+                                                          Spacer(modifier = Modifier.width(6.dp))
+                                                     }
+                                                 }
+
+                                                 if (notif.appName.isNotBlank()) {
+                                                     Text(
+                                                         text = notif.appName,
+                                                         style = TextStyle(
+                                                             fontWeight = FontWeight.SemiBold,
+                                                             fontSize = 11.sp,
+                                                             color = lightAccentColor
+                                                         ),
+                                                         maxLines = 1,
+                                                         overflow = TextOverflow.Ellipsis
+                                                     )
+                                                 }
+                                             }
+                                             Spacer(modifier = Modifier.height(4.dp))
+                                             if (notif.title.isNotBlank()) {
                                                 Text(
                                                     text = notif.title,
                                                     style = TextStyle(
