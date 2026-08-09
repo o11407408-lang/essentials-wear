@@ -255,6 +255,26 @@ class CalendarDataListenerService : WearableListenerService() {
             if (jsonStr.isNotBlank()) {
                 handleAppIconsReceived(jsonStr)
             }
+        } else if (messageEvent.path == "/watch_active_notifications_sync") {
+            val jsonStr = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received watch active notifications sync message")
+            if (jsonStr.isNotBlank()) {
+                handleActiveNotificationsSync(jsonStr)
+            }
+        }
+    }
+
+    private fun handleActiveNotificationsSync(activeArrayJson: String) {
+        try {
+            val activeArray = org.json.JSONArray(activeArrayJson)
+            val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            prefs.edit().putString("watch_notifications_json", activeArray.toString()).apply()
+            val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving active notifications sync", e)
         }
     }
 
@@ -277,7 +297,11 @@ class CalendarDataListenerService : WearableListenerService() {
             }
 
             prefs.edit().putString("watch_notifications_json", updatedArray.toString()).apply()
-            sendBroadcast(Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED"))
+            val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                setPackage(packageName)
+                putExtra("new_notification_json", newNotifJson)
+            }
+            sendBroadcast(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Error saving synced watch notification", e)
         }
@@ -298,7 +322,10 @@ class CalendarDataListenerService : WearableListenerService() {
             }
 
             prefs.edit().putString("watch_notifications_json", updatedArray.toString()).apply()
-            sendBroadcast(Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED"))
+            val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Error removing synced watch notification", e)
         }
@@ -319,7 +346,10 @@ class CalendarDataListenerService : WearableListenerService() {
 
             prefs.edit().putString("watch_app_icons_json", existingObj.toString()).apply()
             Log.d(TAG, "Saved synced app icons to schedule_prefs")
-            sendBroadcast(Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED"))
+            val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Error saving synced app icons", e)
         }
