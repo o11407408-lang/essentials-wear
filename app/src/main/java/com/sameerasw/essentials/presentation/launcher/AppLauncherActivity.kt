@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +36,8 @@ import androidx.wear.compose.material.Scaffold
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
 import com.sameerasw.essentials.presentation.theme.EssentialsTheme
 import com.sameerasw.essentials.utils.HapticUtil
+import com.sameerasw.essentials.utils.ThemeUtil
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 class AppLauncherActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,7 +69,12 @@ data class AppInfo(
 @Composable
 fun AppLauncherScreen() {
     val context = LocalContext.current
+    val view = LocalView.current
     val pm = context.packageManager
+
+    // Theme integration
+    val themeColor = remember { ThemeUtil.getThemeColor(context) }
+    val tonedColor = themeColor?.let { Color(ThemeUtil.getTonedColor(it)) } ?: Color(0xFF1E1E1E)
     
     val apps = remember {
         val intent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -73,7 +82,6 @@ fun AppLauncherScreen() {
         }
         pm.queryIntentActivities(intent, 0).mapNotNull { resolveInfo ->
             val packageName = resolveInfo.activityInfo.packageName
-            // Skip our own app if desired, or keep it. Usually kept in launchers.
             val icon = resolveInfo.loadIcon(pm)
             val launchIntent = pm.getLaunchIntentForPackage(packageName)
             if (launchIntent != null) AppInfo(packageName, icon, launchIntent) else null
@@ -81,6 +89,15 @@ fun AppLauncherScreen() {
     }
 
     val listState = rememberScalingLazyListState()
+
+    // Haptic feedback for scrolling
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.centerItemIndex }
+            .distinctUntilChanged()
+            .collect {
+                HapticUtil.performLightHaptic(view)
+            }
+    }
 
     Scaffold {
         ScalingLazyColumn(
@@ -96,11 +113,11 @@ fun AppLauncherScreen() {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
+                        .padding(vertical = 4.dp), // Reduced vertical spacing
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally) // Reduced horizontal spacing
                 ) {
                     rows[rowIndex].forEach { app ->
-                        AppIconItem(app)
+                        AppIconItem(app, tonedColor)
                     }
                 }
             }
@@ -109,7 +126,7 @@ fun AppLauncherScreen() {
 }
 
 @Composable
-fun AppIconItem(app: AppInfo) {
+fun AppIconItem(app: AppInfo, backgroundColor: Color) {
     val context = LocalContext.current
     val view = LocalView.current
     
@@ -117,7 +134,7 @@ fun AppIconItem(app: AppInfo) {
         modifier = Modifier
             .size(52.dp)
             .clip(CircleShape)
-            .background(Color(0xFF1E1E1E))
+            .background(backgroundColor)
             .clickable {
                 HapticUtil.performUIHaptic(view)
                 try {
