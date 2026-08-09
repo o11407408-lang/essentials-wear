@@ -72,6 +72,7 @@ import com.sameerasw.essentials.presentation.theme.GoogleSansFlexRoundedWide
 import com.sameerasw.essentials.utils.HapticUtil
 import com.sameerasw.essentials.utils.ThemeUtil
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.time.LocalTime
@@ -89,7 +90,7 @@ data class WatchNotificationItem(
 )
 
 @Composable
-fun LauncherScreen() {
+fun LauncherScreen(crownEvents: SharedFlow<Unit>) {
     val context = LocalContext.current
     val view = LocalView.current
     val focusRequester = remember { FocusRequester() }
@@ -132,6 +133,21 @@ fun LauncherScreen() {
         // Auto-reset notification list to top when swiping to it
         if (pagerState.currentPage == 2) {
             notifListState.scrollToItem(0)
+        }
+    }
+
+    LaunchedEffect(crownEvents) {
+        crownEvents.collect {
+            if (pagerState.currentPage != 1) {
+                // If not on clock, go to clock
+                HapticUtil.performUIHaptic(view)
+                pagerState.animateScrollToPage(1)
+            } else {
+                // If on clock, open app launcher
+                HapticUtil.performUIHaptic(view)
+                val intent = Intent(context, AppLauncherActivity::class.java)
+                context.startActivity(intent)
+            }
         }
     }
 
