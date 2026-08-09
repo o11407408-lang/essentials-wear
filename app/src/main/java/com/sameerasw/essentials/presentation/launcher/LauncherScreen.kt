@@ -123,7 +123,13 @@ fun LauncherScreen() {
     
     // Crown logic constants
     var crownAccumulator by remember { mutableStateOf(0f) }
-    val crownTriggerThreshold = 100f // Adjust sensitivity as needed
+    val crownTriggerThreshold = 80f // Slightly more responsive threshold
+
+    // Reset accumulator and ensure focus when page changes
+    LaunchedEffect(pagerState.currentPage) {
+        crownAccumulator = 0f
+        focusRequester.requestFocus()
+    }
 
     // Notifications state
     val notifications = remember { mutableStateListOf<WatchNotificationItem>() }
@@ -221,49 +227,45 @@ fun LauncherScreen() {
                 .onRotaryScrollEvent { event ->
                     val rawDelta = event.verticalScrollPixels
                     
-                    when (pagerState.currentPage) {
-                        0, 1 -> {
-                            // Accumulate crown, snap to prev/next page on threshold
-                            crownAccumulator += rawDelta
-                            if (crownAccumulator > crownTriggerThreshold) {
-                                if (pagerState.currentPage < 2) {
-                                    scope.launch {
-                                        HapticUtil.performUIHaptic(view)
-                                        pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                                    }
-                                }
-                                crownAccumulator = 0f
-                            } else if (crownAccumulator < -crownTriggerThreshold) {
-                                if (pagerState.currentPage > 0) {
-                                    scope.launch {
-                                        HapticUtil.performUIHaptic(view)
-                                        pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                                    }
+                    if (pagerState.currentPage == 2 && !pagerState.isScrollInProgress) {
+                        // Scroll notification list directly and relatively
+                        val canScrollUp = notifListState.canScrollBackward
+                        if (!canScrollUp && rawDelta < 0f) {
+                            // Crown UP at top of list -> accumulate to go back to home page
+                            crownAccumulator = (crownAccumulator + rawDelta).coerceIn(-crownTriggerThreshold, 0f)
+                            if (crownAccumulator <= -crownTriggerThreshold) {
+                                scope.launch {
+                                    HapticUtil.performUIHaptic(view)
+                                    pagerState.animateScrollToPage(1)
                                 }
                                 crownAccumulator = 0f
                             }
-                            true
+                        } else {
+                            crownAccumulator = 0f
+                            notifListState.dispatchRawDelta(rawDelta)
                         }
-                        2 -> {
-                            // Scroll notification list directly
-                            val isAtTop = notifListState.centerItemIndex == 0 && notifListState.centerItemScrollOffset <= 0
-                            if (isAtTop && rawDelta < 0f) {
-                                // Crown UP at top of list -> go back to home page
-                                crownAccumulator += rawDelta
-                                if (crownAccumulator < -crownTriggerThreshold) {
-                                    scope.launch {
-                                        HapticUtil.performUIHaptic(view)
-                                        pagerState.animateScrollToPage(1)
-                                    }
-                                    crownAccumulator = 0f
+                        true
+                    } else {
+                        // Accumulate crown for discrete paging (0 and 1)
+                        crownAccumulator = (crownAccumulator + rawDelta).coerceIn(-crownTriggerThreshold, crownTriggerThreshold)
+                        if (crownAccumulator >= crownTriggerThreshold) {
+                            if (pagerState.currentPage < 2) {
+                                scope.launch {
+                                    HapticUtil.performUIHaptic(view)
+                                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
                                 }
-                            } else {
-                                crownAccumulator = 0f
-                                scope.launch { notifListState.scrollBy(rawDelta) }
                             }
-                            true
+                            crownAccumulator = 0f
+                        } else if (crownAccumulator <= -crownTriggerThreshold) {
+                            if (pagerState.currentPage > 0) {
+                                scope.launch {
+                                    HapticUtil.performUIHaptic(view)
+                                    pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                                }
+                            }
+                            crownAccumulator = 0f
                         }
-                        else -> false
+                        true
                     }
                 }
                 .focusRequester(focusRequester)
@@ -275,7 +277,7 @@ fun LauncherScreen() {
                 userScrollEnabled = true
             ) { page ->
                 when (page) {
-                    0 -> QuickSettingsPage(tonedThemeColor, lightAccentColor, audioManager, watchRingerMode) {
+                    0 -> QuickSettingsPage(tonedThemeColor, lightAccentColor, audioManager, watchRingerMode, focusRequester) {
                         watchRingerMode = it
                     }
                     1 -> ClockFacePage(formattedTime, lightAccentColor)
@@ -298,6 +300,7 @@ fun QuickSettingsPage(
     lightAccentColor: Color,
     audioManager: AudioManager,
     watchRingerMode: Int,
+    focusRequester: FocusRequester,
     onRingerModeChanged: (Int) -> Unit
 ) {
     val context = LocalContext.current
@@ -329,6 +332,8 @@ fun QuickSettingsPage(
                             }
                             context.startActivity(intent)
                         } catch (e: Exception) {}
+                        // Re-request focus to ensure crown continues to work
+                        focusRequester.requestFocus()
                     },
                     modifier = Modifier.size(56.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -375,6 +380,8 @@ fun QuickSettingsPage(
                             audioManager.ringerMode = nextMode
                             onRingerModeChanged(audioManager.ringerMode)
                         } catch (e: Exception) {}
+                        // Re-request focus to ensure crown continues to work
+                        focusRequester.requestFocus()
                     },
                     modifier = Modifier.size(56.dp),
                     colors = soundModeColors
