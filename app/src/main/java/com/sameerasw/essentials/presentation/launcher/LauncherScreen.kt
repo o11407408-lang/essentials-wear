@@ -45,6 +45,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
@@ -56,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.ScalingLazyListState
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Button
@@ -121,14 +123,16 @@ fun LauncherScreen() {
     // Pager State - Start at page 1 (Clock Face)
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     
-    // Crown logic constants
-    var crownAccumulator by remember { mutableStateOf(0f) }
-    val crownTriggerThreshold = 80f // Slightly more responsive threshold
+    val notifListState = rememberScalingLazyListState()
 
-    // Reset accumulator and ensure focus when page changes
+    // Reset crown accumulator and ensure focus when page changes
     LaunchedEffect(pagerState.currentPage) {
-        crownAccumulator = 0f
         focusRequester.requestFocus()
+        
+        // Auto-reset notification list to top when swiping to it
+        if (pagerState.currentPage == 2) {
+            notifListState.scrollToItem(0)
+        }
     }
 
     // Notifications state
@@ -211,8 +215,6 @@ fun LauncherScreen() {
         }
     }
 
-    val notifListState = rememberScalingLazyListState()
-
     Scaffold(
         timeText = {
             EssentialsTimeText(
@@ -227,45 +229,13 @@ fun LauncherScreen() {
                 .onRotaryScrollEvent { event ->
                     val rawDelta = event.verticalScrollPixels
                     
-                    if (pagerState.currentPage == 2 && !pagerState.isScrollInProgress) {
-                        // Scroll notification list directly and relatively
-                        val canScrollUp = notifListState.canScrollBackward
-                        if (!canScrollUp && rawDelta < 0f) {
-                            // Crown UP at top of list -> accumulate to go back to home page
-                            crownAccumulator = (crownAccumulator + rawDelta).coerceIn(-crownTriggerThreshold, 0f)
-                            if (crownAccumulator <= -crownTriggerThreshold) {
-                                scope.launch {
-                                    HapticUtil.performUIHaptic(view)
-                                    pagerState.animateScrollToPage(1)
-                                }
-                                crownAccumulator = 0f
-                            }
-                        } else {
-                            crownAccumulator = 0f
-                            notifListState.dispatchRawDelta(rawDelta)
-                        }
+                    if (pagerState.currentPage == 2) {
+                        // Crown ONLY scrolls the notification list on page 2
+                        notifListState.dispatchRawDelta(rawDelta)
                         true
                     } else {
-                        // Accumulate crown for discrete paging (0 and 1)
-                        crownAccumulator = (crownAccumulator + rawDelta).coerceIn(-crownTriggerThreshold, crownTriggerThreshold)
-                        if (crownAccumulator >= crownTriggerThreshold) {
-                            if (pagerState.currentPage < 2) {
-                                scope.launch {
-                                    HapticUtil.performUIHaptic(view)
-                                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                                }
-                            }
-                            crownAccumulator = 0f
-                        } else if (crownAccumulator <= -crownTriggerThreshold) {
-                            if (pagerState.currentPage > 0) {
-                                scope.launch {
-                                    HapticUtil.performUIHaptic(view)
-                                    pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                                }
-                            }
-                            crownAccumulator = 0f
-                        }
-                        true
+                        // Crown does nothing on other pages (paging is swipe-only)
+                        false
                     }
                 }
                 .focusRequester(focusRequester)
@@ -426,7 +396,7 @@ fun ClockFacePage(formattedTime: String, lightAccentColor: Color) {
 @Composable
 fun NotificationsPage(
     notifications: List<WatchNotificationItem>,
-    listState: androidx.wear.compose.foundation.lazy.ScalingLazyListState,
+    listState: ScalingLazyListState,
     lightAccentColor: Color,
     onDismiss: (String) -> Unit
 ) {
