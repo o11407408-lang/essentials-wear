@@ -237,6 +237,16 @@ class CalendarDataListenerService : WearableListenerService() {
             sendStatusUpdateToPhone(this)
         } else if (messageEvent.path == "/request_watch_status") {
             sendStatusUpdateToPhone(this)
+        } else if (messageEvent.path == "/set_notification_sound") {
+            val soundName = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received set notification sound message: $soundName")
+            if (soundName.isNotBlank()) {
+                val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+                prefs.edit().putString("selected_notification_sound", soundName).apply()
+                sendBroadcast(Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                    setPackage(packageName)
+                })
+            }
         } else if (messageEvent.path == "/watch_notification" || messageEvent.path == "/notification_sync") {
             val jsonStr = String(messageEvent.data ?: byteArrayOf())
             Log.d(TAG, "Received watch notification message: $jsonStr")

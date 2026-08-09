@@ -83,6 +83,7 @@ import com.sameerasw.essentials.utils.HapticUtil
 import com.sameerasw.essentials.utils.ThemeUtil
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.time.LocalTime
@@ -140,6 +141,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
     // Reset crown accumulator and ensure focus when page changes
     LaunchedEffect(pagerState.currentPage) {
         focusRequester.requestFocus()
+        HapticUtil.performPageSwitchHaptic(view)
         
         // Auto-reset notification list to top when swiping to it
         if (pagerState.currentPage == 2) {
@@ -152,13 +154,13 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
             when (action) {
                 CrownAction.GO_TO_CLOCK -> {
                     if (pagerState.currentPage != 1) {
-                        HapticUtil.performUIHaptic(view)
+                        HapticUtil.performPageSwitchHaptic(view)
                         pagerState.animateScrollToPage(1)
                     }
                 }
                 CrownAction.TOGGLE_LAUNCHER -> {
                     if (pagerState.currentPage != 1) {
-                        HapticUtil.performUIHaptic(view)
+                        HapticUtil.performPageSwitchHaptic(view)
                         pagerState.animateScrollToPage(1)
                     } else {
                         HapticUtil.performUIHaptic(view)
@@ -181,8 +183,18 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
     var overlayTimeoutKey by remember { mutableStateOf(0) }
 
     fun playNotificationSound(context: Context) {
+        if (audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+
         try {
-            val mediaPlayer = MediaPlayer.create(context, R.raw.carmen_nexus)
+            val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+            val soundName = prefs.getString("selected_notification_sound", "carmen_nexus") ?: "carmen_nexus"
+            val soundResId = when (soundName) {
+                "google" -> R.raw.google
+                "notification" -> R.raw.notification
+                "dock" -> R.raw.dock
+                else -> R.raw.carmen_nexus
+            }
+            val mediaPlayer = MediaPlayer.create(context, soundResId)
             mediaPlayer?.start()
             mediaPlayer?.setOnCompletionListener { it.release() }
         } catch (e: Exception) {}
@@ -334,10 +346,12 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
                                 activeNewNotification = item
                                 overlayTimeoutKey++
                                 playNotificationSound(context)
+                                HapticUtil.performStrongDoubleTap(view)
                                 android.util.Log.d("LauncherScreen", "Showing new notification overlay")
                             } else {
                                 // Drawer is open, play sound only for regular notifications
                                 playNotificationSound(context)
+                                HapticUtil.performStrongDoubleTap(view)
                             }
                         } else {
                             android.util.Log.d("LauncherScreen", "Media notification received - skipping overlay/sound")
@@ -608,20 +622,29 @@ fun NotificationsPage(
         notifications.filter { !it.isMedia }
     }
 
+    // Scroll haptics
+    LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow { listState.centerItemIndex }
+            .distinctUntilChanged()
+            .collect {
+                HapticUtil.performSubtleTick(view)
+            }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 12.dp)
+            modifier = Modifier.fillMaxSize()
         ) {
             if (notifications.isEmpty()) {
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp)
                 ) {
                     Text(
                         text = stringResource(R.string.launcher_notifications_empty),
@@ -646,7 +669,7 @@ fun NotificationsPage(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 8.dp),
-                                contentPadding = PaddingValues(horizontal = 4.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 lazyRowItems(mediaNotifications, key = { it.key }) { notif ->
@@ -723,8 +746,12 @@ fun WatchNotificationCardItem(
         offsetX += delta
     }
 
-    val cardBg = if (notif.isMedia) Color(0xFF231B2B) else Color(0xFF1E1E1E)
-    val borderColor = if (notif.isMedia) lightAccentColor.copy(alpha = 0.35f) else Color.Transparent
+    // Subtle dark background derived from accent color
+    val cardBg = if (notif.isMedia) {
+        lightAccentColor.copy(alpha = 0.15f)
+    } else {
+        lightAccentColor.copy(alpha = 0.12f)
+    }
     
     val baseModifier = if (isHorizontal) {
         Modifier.width(155.dp)
@@ -754,10 +781,11 @@ fun WatchNotificationCardItem(
     Box(
         modifier = interactiveModifier
             .padding(vertical = 4.dp)
-            .background(color = cardBg, shape = RoundedCornerShape(24.dp))
+            .background(color = Color(0xFF141414), shape = RoundedCornerShape(24.dp)) // Dark base
+            .background(color = cardBg, shape = RoundedCornerShape(24.dp)) // Accent tint
             .border(
                 width = if (notif.isMedia) 1.dp else 0.dp,
-                color = borderColor,
+                color = lightAccentColor.copy(alpha = 0.3f),
                 shape = RoundedCornerShape(24.dp)
             )
             .clickable {
@@ -784,7 +812,7 @@ fun WatchNotificationCardItem(
                          Spacer(modifier = Modifier.width(6.dp))
                      }
                  }
-                 if (notif.appName.isNotBlank()) {
+                 if (notif.appName.isNotBlank() && !notif.isMedia) {
                      Text(
                          text = notif.appName,
                          style = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = lightAccentColor),
@@ -881,9 +909,7 @@ fun NewNotificationOverlay(
     ) {
         ScalingLazyColumn(
             state = scrollState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 14.dp),
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             contentPadding = PaddingValues(top = 28.dp, bottom = 48.dp)
         ) {
@@ -929,7 +955,7 @@ fun NewNotificationOverlay(
                         fontWeight = FontWeight.ExtraBold,
                         textAlign = TextAlign.Center
                     ),
-                    modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)
+                    modifier = Modifier.padding(top = 6.dp, bottom = 8.dp).padding(horizontal = 16.dp)
                 )
             }
             item {
@@ -941,7 +967,7 @@ fun NewNotificationOverlay(
                         textAlign = TextAlign.Center,
                         lineHeight = 18.sp
                     ),
-                    modifier = Modifier.padding(bottom = 20.dp)
+                    modifier = Modifier.padding(bottom = 20.dp).padding(horizontal = 16.dp)
                 )
             }
             if (notification.canReply) {

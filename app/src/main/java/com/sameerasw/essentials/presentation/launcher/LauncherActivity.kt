@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import com.sameerasw.essentials.presentation.theme.EssentialsTheme
 import kotlinx.coroutines.flow.MutableSharedFlow
 
@@ -17,6 +18,7 @@ class LauncherActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setTheme(android.R.style.Theme_DeviceDefault)
 
         setContent {

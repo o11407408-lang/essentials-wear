@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 class AppLauncherActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setTheme(android.R.style.Theme_DeviceDefault)
         setContent {
             EssentialsTheme {
@@ -95,17 +97,16 @@ fun AppLauncherScreen() {
         snapshotFlow { listState.centerItemIndex }
             .distinctUntilChanged()
             .collect {
-                HapticUtil.performLightHaptic(view)
+                HapticUtil.performSubtleTick(view)
             }
     }
 
     Scaffold {
         ScalingLazyColumn(
-            modifier = Modifier.fillMaxSize()
-                .background(Color.Black),
+            modifier = Modifier.fillMaxSize(),
             state = listState,
             horizontalAlignment = Alignment.CenterHorizontally,
-            contentPadding = PaddingValues(vertical = 32.dp)
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 40.dp)
         ) {
             // Group into rows of 3 to create a grid effect
             val rows = apps.chunked(3)
