@@ -90,7 +90,7 @@ data class WatchNotificationItem(
 )
 
 @Composable
-fun LauncherScreen(crownEvents: SharedFlow<Unit>) {
+fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
     val context = LocalContext.current
     val view = LocalView.current
     val focusRequester = remember { FocusRequester() }
@@ -137,16 +137,30 @@ fun LauncherScreen(crownEvents: SharedFlow<Unit>) {
     }
 
     LaunchedEffect(crownEvents) {
-        crownEvents.collect {
-            if (pagerState.currentPage != 1) {
-                // If not on clock, go to clock
-                HapticUtil.performUIHaptic(view)
-                pagerState.animateScrollToPage(1)
-            } else {
-                // If on clock, open app launcher
-                HapticUtil.performUIHaptic(view)
-                val intent = Intent(context, AppLauncherActivity::class.java)
-                context.startActivity(intent)
+        crownEvents.collect { action ->
+            when (action) {
+                CrownAction.GO_TO_CLOCK -> {
+                    if (pagerState.currentPage != 1) {
+                        HapticUtil.performUIHaptic(view)
+                        pagerState.animateScrollToPage(1)
+                    }
+                }
+                CrownAction.TOGGLE_LAUNCHER -> {
+                    if (pagerState.currentPage != 1) {
+                        // If not on clock, go to clock first
+                        HapticUtil.performUIHaptic(view)
+                        pagerState.animateScrollToPage(1)
+                    } else {
+                        // If already on clock, open app launcher
+                        HapticUtil.performUIHaptic(view)
+                        // Use a small delay to ensure the pager is settled and focus is solid
+                        delay(50)
+                        val intent = Intent(context, AppLauncherActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    }
+                }
             }
         }
     }

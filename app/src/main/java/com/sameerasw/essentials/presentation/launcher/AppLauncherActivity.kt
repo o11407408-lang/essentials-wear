@@ -47,7 +47,7 @@ class AppLauncherActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_STEM_1) {
+        if (keyCode == KeyEvent.KEYCODE_STEM_1 || keyCode == KeyEvent.KEYCODE_HOME) {
             // Crown press returns to Home (LauncherActivity)
             finish()
             return true
