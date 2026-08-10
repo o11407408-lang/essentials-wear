@@ -412,19 +412,40 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
                 .fillMaxSize()
                 .onRotaryScrollEvent { event ->
                     val rawDelta = event.verticalScrollPixels
+                    val pageAnim = tween<Float>(durationMillis = 600)
                     when (pagerState.currentPage) {
-                        2 -> {
-                            notifListState.dispatchRawDelta(rawDelta)
+                        0 -> {
+                            // From QS: crown down returns to clock
+                            crownAccumulator += rawDelta
+                            if (crownAccumulator > crownThreshold) {
+                                crownAccumulator = 0f
+                                scope.launch { pagerState.animateScrollToPage(1, animationSpec = pageAnim) }
+                            }
                             true
                         }
                         1 -> {
                             crownAccumulator += rawDelta
                             if (crownAccumulator > crownThreshold) {
                                 crownAccumulator = 0f
-                                scope.launch { pagerState.animateScrollToPage(2) }
+                                scope.launch { pagerState.animateScrollToPage(2, animationSpec = pageAnim) }
                             } else if (crownAccumulator < -crownThreshold) {
                                 crownAccumulator = 0f
-                                scope.launch { pagerState.animateScrollToPage(0) }
+                                scope.launch { pagerState.animateScrollToPage(0, animationSpec = pageAnim) }
+                            }
+                            true
+                        }
+                        2 -> {
+                            // From notifications: crown up at top returns to clock, otherwise scroll list
+                            val atTop = notifListState.centerItemIndex <= 0
+                            if (rawDelta < 0 && atTop) {
+                                crownAccumulator += rawDelta
+                                if (crownAccumulator < -crownThreshold) {
+                                    crownAccumulator = 0f
+                                    scope.launch { pagerState.animateScrollToPage(1, animationSpec = pageAnim) }
+                                }
+                            } else {
+                                crownAccumulator = 0f
+                                notifListState.dispatchRawDelta(rawDelta)
                             }
                             true
                         }
