@@ -98,6 +98,7 @@ import com.sameerasw.essentials.presentation.components.EssentialsTimeText
 import com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded
 import com.sameerasw.essentials.presentation.theme.GoogleSansFlexRoundedWide
 import com.sameerasw.essentials.utils.HapticUtil
+import com.sameerasw.essentials.utils.SoundUtil
 import com.sameerasw.essentials.utils.ThemeUtil
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
@@ -213,24 +214,6 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
     var overlayTimeoutKey by remember { mutableStateOf(0) }
     var crownAccumulator by remember { mutableStateOf(0f) }
     val crownThreshold = 80f
-
-    fun playNotificationSound(context: Context) {
-        if (audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
-
-        try {
-            val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
-            val soundName = prefs.getString("selected_notification_sound", "carmen_nexus") ?: "carmen_nexus"
-            val soundResId = when (soundName) {
-                "google" -> R.raw.google
-                "notification" -> R.raw.notification
-                "dock" -> R.raw.dock
-                else -> R.raw.carmen_nexus
-            }
-            val mediaPlayer = MediaPlayer.create(context, soundResId)
-            mediaPlayer?.start()
-            mediaPlayer?.setOnCompletionListener { it.release() }
-        } catch (e: Exception) {}
-    }
 
     fun loadNotifications() {
         try {
@@ -368,15 +351,13 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
 
                         if (!item.isMedia) {
                             if (pagerState.currentPage <= 1) {
-                                activeNewNotification = item
-                                overlayTimeoutKey++
-                                playNotificationSound(context)
-                                HapticUtil.performStrongDoubleTap(view)
-                                android.util.Log.d("LauncherScreen", "Showing new notification overlay")
-                            } else {
-                                // Drawer is open, play sound only for regular notifications
-                                playNotificationSound(context)
-                                HapticUtil.performStrongDoubleTap(view)
+                                val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+                                val overlayEnabled = prefs.getBoolean("prefs_notification_overlay_enabled", true)
+                                if (overlayEnabled) {
+                                    activeNewNotification = item
+                                    overlayTimeoutKey++
+                                }
+                                android.util.Log.d("LauncherScreen", "Showing new notification overlay: $overlayEnabled")
                             }
                         } else {
                             android.util.Log.d("LauncherScreen", "Media notification received - skipping overlay/sound")
@@ -516,7 +497,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
             }
 
             AnimatedVisibility(
-                visible = activeNewNotification != null,
+                visible = activeNewNotification != null && !isAmbient,
                 enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
                 modifier = Modifier.fillMaxSize()
@@ -645,10 +626,14 @@ fun QuickSettingsPage(
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
         state = listState,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 32.dp),
+        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 40.dp, top = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        autoCentering = AutoCenteringParams(itemIndex = rows.size - 1)
+        autoCentering = AutoCenteringParams(itemIndex = rows.size - 1),
+        verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom)
     ) {
+        item {
+            Spacer(modifier = Modifier.height(60.dp))
+        }
         items(rows.size) { rowIndex ->
             val rowItems = rows[rowIndex]
             Row(
@@ -1190,9 +1175,9 @@ fun NewNotificationOverlay(
                         totalDragY = 0f
                     },
                     onDragEnd = {
-                        if (totalDragY > 100f) {
+                        if (totalDragY > 60f) {
                             onDismissOverlay()
-                        } else if (kotlin.math.abs(totalDragX) > 100f) {
+                        } else if (kotlin.math.abs(totalDragX) > 70f) {
                             HapticUtil.performUIHaptic(view)
                             onDismissNotification()
                         }
@@ -1202,9 +1187,19 @@ fun NewNotificationOverlay(
                         onInteraction()
                     },
                     onDrag = { change, dragAmount ->
-                        change.consume()
-                        totalDragX += dragAmount.x
-                        totalDragY += dragAmount.y
+                        val atTop = scrollState.centerItemIndex <= 0 && scrollState.centerItemScrollOffset <= 0
+                        
+                        // Vertical swipe down at top to dismiss overlay (like switching home pages)
+                        if (dragAmount.y > kotlin.math.abs(dragAmount.x) && atTop) {
+                            totalDragY += dragAmount.y
+                            change.consume()
+                        } else if (kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
+                            // Horizontal swipe to dismiss notification
+                            totalDragX += dragAmount.x
+                            change.consume()
+                        } else {
+                            // Let ScalingLazyColumn handle normal scrolling
+                        }
                     }
                 )
             },

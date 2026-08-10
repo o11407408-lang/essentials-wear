@@ -27,13 +27,13 @@ object HapticUtil {
         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS, IGNORE_GLOBAL)
     }
 
-    fun performStrongDoubleTap(view: View) {
+    fun performStrongDoubleTap(context: Context) {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = view.context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             vibratorManager.defaultVibrator
         } else {
             @Suppress("DEPRECATION")
-            view.context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
 
         val timings = longArrayOf(0, 150, 100, 150)
@@ -41,9 +41,10 @@ object HapticUtil {
         
         if (vibrator.hasVibrator()) {
             vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
-        } else {
-            // Fallback to haptic if vibrator isn't available or fails
-            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS, IGNORE_GLOBAL)
         }
+    }
+
+    fun performStrongDoubleTap(view: View) {
+        performStrongDoubleTap(view.context)
     }
 }

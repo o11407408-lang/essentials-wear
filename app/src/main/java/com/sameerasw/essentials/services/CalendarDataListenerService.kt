@@ -7,14 +7,17 @@ import androidx.wear.tiles.TileService
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
-import androidx.core.app.NotificationCompat
+import android.provider.Settings
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.WearableListenerService
 import com.google.gson.Gson
+import com.sameerasw.essentials.R
 import com.sameerasw.essentials.tile.MainTileService
 import com.sameerasw.essentials.tile.PhoneBatteryTileService
+import com.sameerasw.essentials.utils.HapticUtil
+import com.sameerasw.essentials.utils.SoundUtil
 
 class CalendarDataListenerService : WearableListenerService() {
     companion object {
@@ -307,11 +310,40 @@ class CalendarDataListenerService : WearableListenerService() {
             }
 
             prefs.edit().putString("watch_notifications_json", updatedArray.toString()).apply()
-            val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
-                setPackage(packageName)
-                putExtra("new_notification_json", newNotifJson)
+            
+            val isMedia = newObj.optBoolean("isMedia", false)
+            if (!isMedia) {
+                SoundUtil.playNotificationSound(this)
+                HapticUtil.performStrongDoubleTap(this)
+
+                val overlayEnabled = prefs.getBoolean("prefs_notification_overlay_enabled", true)
+                if (overlayEnabled) {
+                    if (isDefaultLauncher()) {
+                        Log.d(TAG, "isDefaultLauncher: true - sending broadcast")
+                        val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                            setPackage(packageName)
+                            putExtra("new_notification_json", newNotifJson)
+                        }
+                        sendBroadcast(intent)
+                    } else {
+                        Log.d(TAG, "isDefaultLauncher: false - showing accessibility overlay")
+                        autoEnableAccessibilityService()
+                        val intent = Intent("com.sameerasw.essentials.SHOW_OVERLAY").apply {
+                            setPackage(packageName)
+                            putExtra("notification_json", newNotifJson)
+                        }
+                        sendBroadcast(intent)
+                    }
+                } else {
+                    // Even if overlay is disabled, we still need to refresh the notification list if launcher is active
+                    if (isDefaultLauncher()) {
+                        val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                            setPackage(packageName)
+                        }
+                        sendBroadcast(intent)
+                    }
+                }
             }
-            sendBroadcast(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Error saving synced watch notification", e)
         }
@@ -381,6 +413,30 @@ class CalendarDataListenerService : WearableListenerService() {
             for (node in nodes) {
                 messageClient.sendMessage(node.id, "/watch_status_update", data)
             }
+        }
+    }
+
+    private fun isDefaultLauncher(): Boolean {
+        val intent = Intent(Intent.ACTION_MAIN)
+        intent.addCategory(Intent.CATEGORY_HOME)
+        val resolveInfo = packageManager.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        val isDefault = resolveInfo?.activityInfo?.packageName == packageName
+        Log.d(TAG, "isDefaultLauncher check: $isDefault (Default pkg: ${resolveInfo?.activityInfo?.packageName})")
+        return isDefault
+    }
+
+    private fun autoEnableAccessibilityService() {
+        val serviceName = "$packageName/${OverlayAccessibilityService::class.java.name}"
+        try {
+            val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
+            if (!enabledServices.contains(serviceName)) {
+                val newEnabledServices = if (enabledServices.isEmpty()) serviceName else "$enabledServices:$serviceName"
+                Settings.Secure.putString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, newEnabledServices)
+                Settings.Secure.putInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+                Log.d(TAG, "Successfully enabled accessibility service: $serviceName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to enable accessibility service", e)
         }
     }
 
