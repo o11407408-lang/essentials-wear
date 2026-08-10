@@ -119,7 +119,7 @@ data class WatchNotificationItem(
 )
 
 @Composable
-fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
+fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = false) {
     val context = LocalContext.current
     val view = LocalView.current
     val focusRequester = remember { FocusRequester() }
@@ -154,10 +154,18 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
     
     val notifListState = rememberScalingLazyListState()
+    val qsListState = rememberScalingLazyListState()
 
     // Reset crown accumulator and ensure focus when page changes
-    LaunchedEffect(pagerState.currentPage) {
-        focusRequester.requestFocus()
+    LaunchedEffect(pagerState.currentPage, isAmbient) {
+        if (!isAmbient) {
+            focusRequester.requestFocus()
+        } else {
+            // Auto-return to clock in ambient mode
+            if (pagerState.currentPage != 1) {
+                pagerState.scrollToPage(1)
+            }
+        }
         HapticUtil.performPageSwitchHaptic(view)
         
         // Auto-reset notification list to top when swiping to it
@@ -401,26 +409,39 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
 
     Scaffold(
         timeText = {
-            EssentialsTimeText(
-                showWatchBattery = true,
-                showTime = pagerState.currentPage != 1 || activeNewNotification != null,
-                showDate = pagerState.currentPage == 0 // Show date in Quick Settings
-            )
+            AnimatedVisibility(
+                visible = !isAmbient,
+                enter = fadeIn() + slideInVertically(),
+                exit = fadeOut() + slideOutVertically()
+            ) {
+                EssentialsTimeText(
+                    showWatchBattery = true,
+                    showTime = pagerState.currentPage != 1 || activeNewNotification != null,
+                    showDate = pagerState.currentPage == 0 // Show date in Quick Settings
+                )
+            }
         }
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .onRotaryScrollEvent { event ->
+                    if (isAmbient) return@onRotaryScrollEvent false
                     val rawDelta = event.verticalScrollPixels
                     val pageAnim = tween<Float>(durationMillis = 600)
                     when (pagerState.currentPage) {
                         0 -> {
-                            // From QS: crown down returns to clock
-                            crownAccumulator += rawDelta
-                            if (crownAccumulator > crownThreshold) {
+                            // Unified scrolling for QS: scroll down at bottom goes to clock
+                            val atBottom = qsListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index == qsListState.layoutInfo.totalItemsCount - 1
+                            if (rawDelta > 0 && atBottom) {
+                                crownAccumulator += rawDelta
+                                if (crownAccumulator > crownThreshold) {
+                                    crownAccumulator = 0f
+                                    scope.launch { pagerState.animateScrollToPage(1, animationSpec = pageAnim) }
+                                }
+                            } else {
                                 crownAccumulator = 0f
-                                scope.launch { pagerState.animateScrollToPage(1, animationSpec = pageAnim) }
+                                qsListState.dispatchRawDelta(rawDelta)
                             }
                             true
                         }
@@ -459,13 +480,13 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
             VerticalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
-                userScrollEnabled = activeNewNotification == null
+                userScrollEnabled = activeNewNotification == null && !isAmbient
             ) { page ->
                 when (page) {
-                    0 -> QuickSettingsPage(tonedThemeColor, lightAccentColor, audioManager, watchRingerMode, focusRequester) {
+                    0 -> QuickSettingsPage(tonedThemeColor, lightAccentColor, audioManager, watchRingerMode, focusRequester, qsListState) {
                         watchRingerMode = it
                     }
-                    1 -> ClockFacePage(formattedTime, lightAccentColor)
+                    1 -> ClockFacePage(formattedTime, lightAccentColor, isAmbient)
                     2 -> NotificationsPage(
                         notifications = notifications,
                         listState = notifListState,
@@ -477,7 +498,11 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
                 }
             }
 
-            if (pagerState.currentPage == 1 && activeNewNotification == null) {
+            AnimatedVisibility(
+                visible = pagerState.currentPage == 1 && activeNewNotification == null && !isAmbient,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
                 BottomNotificationIndicator(
                     notifications = notifications,
                     lightAccentColor = lightAccentColor,
@@ -553,6 +578,7 @@ fun QuickSettingsPage(
     audioManager: AudioManager,
     watchRingerMode: Int,
     focusRequester: FocusRequester,
+    listState: ScalingLazyListState,
     onRingerModeChanged: (Int) -> Unit
 ) {
     val context = LocalContext.current
@@ -610,8 +636,6 @@ fun QuickSettingsPage(
         }
         result
     }
-
-    val listState = rememberScalingLazyListState()
 
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -712,10 +736,38 @@ fun QuickSettingsPage(
                                 onClick = {
                                     HapticUtil.performUIHaptic(view)
                                     try {
-                                        val intent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.wearable.flashlight")
-                                        if (intent != null) {
-                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            context.startActivity(intent)
+                                        // Attempt multiple package names if needed
+                                        val flashlightPackages = listOf(
+                                            "com.google.android.apps.wearable.flashlight",
+                                            "com.samsung.android.watch.flashlight",
+                                            "com.mobvoi.ticwear.flashlight",
+                                            "com.fossil.wearables.flashlight"
+                                        )
+                                        var launched = false
+                                        for (pkg in flashlightPackages) {
+                                            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                                            if (intent != null) {
+                                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                context.startActivity(intent)
+                                                launched = true
+                                                break
+                                            }
+                                        }
+                                        if (!launched) {
+                                            // Final fallback: try query intent for any activity with "flashlight" in name/category
+                                            val searchIntent = Intent(Intent.ACTION_MAIN).apply {
+                                                addCategory(Intent.CATEGORY_LAUNCHER)
+                                            }
+                                            val apps = context.packageManager.queryIntentActivities(searchIntent, 0)
+                                            val flashlightApp = apps.find { 
+                                                it.activityInfo.packageName.contains("flashlight", ignoreCase = true) ||
+                                                it.loadLabel(context.packageManager).toString().contains("flashlight", ignoreCase = true)
+                                            }
+                                            flashlightApp?.let {
+                                                val intent = context.packageManager.getLaunchIntentForPackage(it.activityInfo.packageName)
+                                                intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                context.startActivity(intent)
+                                            }
                                         }
                                     } catch (e: Exception) {}
                                 },
@@ -795,7 +847,7 @@ fun QuickSettingsPage(
 }
 
 @Composable
-fun ClockFacePage(formattedTime: String, lightAccentColor: Color) {
+fun ClockFacePage(formattedTime: String, lightAccentColor: Color, isAmbient: Boolean = false) {
     BoxWithConstraints(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -803,12 +855,14 @@ fun ClockFacePage(formattedTime: String, lightAccentColor: Color) {
             .padding(horizontal = 4.dp)
     ) {
         val computedFontSize = (maxWidth.value * 0.65f / 3.2f).coerceIn(40f, 68f).sp
+        val fontWeight = if (isAmbient) FontWeight.Light else FontWeight.Bold
+        
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = formattedTime,
                 style = TextStyle(
                     fontFamily = GoogleSansFlexRoundedWide,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = fontWeight,
                     fontSize = computedFontSize,
                     color = lightAccentColor,
                     textAlign = TextAlign.Center

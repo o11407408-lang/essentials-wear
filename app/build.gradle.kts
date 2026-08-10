@@ -53,6 +53,7 @@ android {
 
 dependencies {
     implementation(libs.play.services.wearable)
+    implementation(libs.wear)
     implementation(libs.gson)
     implementation(platform(libs.compose.bom))
     implementation(libs.ui)
