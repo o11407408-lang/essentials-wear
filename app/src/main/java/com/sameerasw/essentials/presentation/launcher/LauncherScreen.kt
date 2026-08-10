@@ -8,9 +8,15 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,6 +45,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,6 +78,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyRowItems
+import androidx.wear.compose.foundation.CurvedLayout
+import androidx.wear.compose.foundation.CurvedTextStyle
+import androidx.wear.compose.foundation.curvedComposable
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.ScalingLazyListState
 import androidx.wear.compose.foundation.lazy.items
@@ -181,8 +191,8 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
         }
     }
 
-    // Notifications state
-    val notifications = remember { mutableStateListOf<WatchNotificationItem>() }
+    // Immutable list reference replaced on every update so child composables always recompose
+    var notifications by remember { mutableStateOf(listOf<WatchNotificationItem>()) }
     var activeNewNotification by remember { mutableStateOf<WatchNotificationItem?>(null) }
     var replyTargetNotification by remember { mutableStateOf<WatchNotificationItem?>(null) }
     var detailTargetNotification by remember { mutableStateOf<WatchNotificationItem?>(null) }
@@ -217,20 +227,16 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
             val now = System.currentTimeMillis()
             val maxAgeMs = 48 * 60 * 60 * 1000L
             val validArray = JSONArray()
+            val newList = mutableListOf<WatchNotificationItem>()
 
-            notifications.clear()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val postTime = obj.optLong("postTime", 0L)
-                
-                // Auto-purge notifications older than 48 hours only if postTime is positive
                 if (postTime > 0 && now - postTime > maxAgeMs) continue
-
                 validArray.put(obj)
                 val pkg = obj.optString("packageName", "")
                 val iconBase64 = iconsObj.optString(pkg, "")
-
-                notifications.add(
+                newList.add(
                     WatchNotificationItem(
                         key = obj.getString("key"),
                         packageName = pkg,
@@ -248,12 +254,12 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
             if (validArray.length() != jsonArray.length()) {
                 prefs.edit().putString("watch_notifications_json", validArray.toString()).apply()
             }
-        } catch (e: Exception) {
-            // Fallback
-        }
+            notifications = newList
+        } catch (e: Exception) {}
     }
 
     fun dismissNotificationOnPhoneAndWatch(key: String) {
+        notifications = notifications.filter { it.key != key }
         try {
             val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
             val existingJson = prefs.getString("watch_notifications_json", "[]") ?: "[]"
@@ -261,12 +267,9 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
             val updatedArray = JSONArray()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                if (obj.optString("key") != key) {
-                    updatedArray.put(obj)
-                }
+                if (obj.optString("key") != key) updatedArray.put(obj)
             }
             prefs.edit().putString("watch_notifications_json", updatedArray.toString()).apply()
-            loadNotifications()
         } catch (e: Exception) {}
 
         val nodeClient = Wearable.getNodeClient(context)
@@ -300,7 +303,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
             val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
             val jsonStr = prefs.getString("watch_notifications_json", "[]") ?: "[]"
             val jsonArray = JSONArray(jsonStr)
-            
+
             val nodeClient = Wearable.getNodeClient(context)
             nodeClient.connectedNodes.addOnSuccessListener { nodes ->
                 if (nodes.isNotEmpty()) {
@@ -316,7 +319,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
                 }
             }
             prefs.edit().putString("watch_notifications_json", "[]").apply()
-            loadNotifications()
+            notifications = emptyList()
         } catch (e: Exception) {}
     }
 
@@ -430,6 +433,14 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
                         onSelectDetail = { notif -> detailTargetNotification = notif }
                     )
                 }
+            }
+
+            if (pagerState.currentPage == 1 && activeNewNotification == null) {
+                BottomNotificationIndicator(
+                    notifications = notifications,
+                    lightAccentColor = lightAccentColor,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             AnimatedVisibility(
@@ -629,12 +640,9 @@ fun NotificationsPage(
 ) {
     val view = LocalView.current
     
-    val mediaNotifications = remember(notifications) {
-        notifications.filter { it.isMedia }.sortedByDescending { it.postTime }
-    }
-    val regularNotifications = remember(notifications) {
-        notifications.filter { !it.isMedia }
-    }
+    // Read directly from SnapshotStateList so recomposition triggers on every item change
+    val mediaNotifications = notifications.filter { it.isMedia }.sortedByDescending { it.postTime }
+    val regularNotifications = notifications.filter { !it.isMedia }
 
     // Scroll haptics
     LaunchedEffect(listState) {
@@ -759,131 +767,142 @@ fun WatchNotificationCardItem(
     isHorizontal: Boolean = false
 ) {
     val view = LocalView.current
-    var offsetX by remember { mutableStateOf(0f) }
+    val scope = rememberCoroutineScope()
+    var dismissed by remember { mutableStateOf(false) }
+    val offsetX = remember { Animatable(0f) }
     val swipeState = rememberDraggableState { delta ->
-        offsetX += delta
+        scope.launch { offsetX.snapTo(offsetX.value + delta) }
     }
 
-    // Subtle dark background derived from accent color
     val cardBg = if (notif.isMedia) {
         lightAccentColor.copy(alpha = 0.15f)
     } else {
         lightAccentColor.copy(alpha = 0.12f)
     }
-    
-    val baseModifier = if (isHorizontal) {
-        Modifier.width(170.dp)
-    } else {
-        Modifier.fillMaxWidth()
+
+    val baseModifier = if (isHorizontal) Modifier.width(170.dp) else Modifier.fillMaxWidth()
+
+    LaunchedEffect(dismissed) {
+        if (dismissed) onDismiss(notif.key)
     }
 
-    val interactiveModifier = if (!notif.isMedia) {
-        baseModifier
-            .graphicsLayer { translationX = offsetX }
-            .draggable(
-                state = swipeState,
-                orientation = Orientation.Horizontal,
-                onDragStopped = { velocity ->
-                    if (kotlin.math.abs(offsetX) > 80f || kotlin.math.abs(velocity) > 200f) {
-                        HapticUtil.performUIHaptic(view)
-                        onDismiss(notif.key)
-                    } else {
-                        offsetX = 0f
-                    }
-                }
-            )
-    } else {
-        baseModifier
-    }
-
-    Box(
-        modifier = interactiveModifier
-            .padding(vertical = 1.dp) // even more compact
-            .background(color = Color(0xFF141414), shape = RoundedCornerShape(24.dp)) // Dark base
-            .background(color = cardBg, shape = RoundedCornerShape(24.dp)) // Accent tint
-            .clickable {
-                HapticUtil.performUIHaptic(view)
-                onSelectDetail(notif)
-            }
-            .padding(vertical = 10.dp, horizontal = 12.dp)
+    AnimatedVisibility(
+        visible = !dismissed,
+        exit = slideOutHorizontally(targetOffsetX = { if (offsetX.value >= 0f) it else -it }) + shrinkVertically()
     ) {
-         Column {
-             Row(verticalAlignment = Alignment.CenterVertically) {
-                 if (notif.iconBase64.isNotBlank()) {
-                     val bitmap = remember(notif.iconBase64) {
-                         try {
-                             val bytes = android.util.Base64.decode(notif.iconBase64, android.util.Base64.NO_WRAP)
-                             android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                         } catch (e: Exception) { null }
+        val interactiveModifier = if (!notif.isMedia) {
+            baseModifier
+                .graphicsLayer { translationX = offsetX.value }
+                .draggable(
+                    state = swipeState,
+                    orientation = Orientation.Horizontal,
+                    onDragStopped = { velocity ->
+                        if (kotlin.math.abs(offsetX.value) > 80f || kotlin.math.abs(velocity) > 300f) {
+                            HapticUtil.performUIHaptic(view)
+                            dismissed = true
+                        } else {
+                            scope.launch {
+                                offsetX.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f)
+                                )
+                            }
+                        }
+                    }
+                )
+        } else {
+            baseModifier
+        }
+
+        Box(
+            modifier = interactiveModifier
+                .padding(vertical = 1.dp)
+                .background(color = Color(0xFF141414), shape = RoundedCornerShape(24.dp))
+                .background(color = cardBg, shape = RoundedCornerShape(24.dp))
+                .clickable {
+                    HapticUtil.performUIHaptic(view)
+                    onSelectDetail(notif)
+                }
+                .padding(vertical = 10.dp, horizontal = 12.dp)
+        ) {
+             Column {
+                 Row(verticalAlignment = Alignment.CenterVertically) {
+                     if (notif.iconBase64.isNotBlank()) {
+                         val bitmap = remember(notif.iconBase64) {
+                             try {
+                                 val bytes = android.util.Base64.decode(notif.iconBase64, android.util.Base64.NO_WRAP)
+                                 android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                             } catch (e: Exception) { null }
+                         }
+                         bitmap?.let { bmp ->
+                             androidx.compose.foundation.Image(
+                                 bitmap = bmp.asImageBitmap(),
+                                 contentDescription = null,
+                                 modifier = Modifier.size(16.dp).clip(CircleShape)
+                             )
+                             Spacer(modifier = Modifier.width(6.dp))
+                         }
                      }
-                     bitmap?.let { bmp ->
-                         androidx.compose.foundation.Image(
-                             bitmap = bmp.asImageBitmap(),
-                             contentDescription = null,
-                             modifier = Modifier.size(16.dp).clip(CircleShape)
+                     if (notif.appName.isNotBlank() && !notif.isMedia) {
+                         Text(
+                             text = notif.appName,
+                             style = TextStyle(
+                                 fontFamily = GoogleSansFlexRounded,
+                                 fontWeight = FontWeight.SemiBold,
+                                 fontSize = 11.sp,
+                                 color = lightAccentColor
+                             ),
+                             maxLines = 1,
+                             overflow = TextOverflow.Ellipsis
                          )
-                         Spacer(modifier = Modifier.width(6.dp))
+                     }
+                     if (notif.isMedia) {
+                         Spacer(modifier = Modifier.weight(1f))
+                         Icon(
+                             painter = painterResource(id = R.drawable.rounded_music_note_24),
+                             contentDescription = null,
+                             modifier = Modifier.size(14.dp),
+                             tint = lightAccentColor
+                         )
+                     } else if (notif.canReply) {
+                         Spacer(modifier = Modifier.weight(1f))
+                         Icon(
+                             painter = painterResource(id = R.drawable.rounded_reply_24),
+                             contentDescription = null,
+                             modifier = Modifier.size(14.dp),
+                             tint = lightAccentColor
+                         )
                      }
                  }
-                 if (notif.appName.isNotBlank() && !notif.isMedia) {
+                 Spacer(modifier = Modifier.height(2.dp))
+                 if (notif.title.isNotBlank()) {
                      Text(
-                         text = notif.appName,
+                         text = notif.title,
                          style = TextStyle(
                              fontFamily = GoogleSansFlexRounded,
-                             fontWeight = FontWeight.SemiBold,
-                             fontSize = 11.sp,
-                             color = lightAccentColor
+                             fontWeight = FontWeight.Bold,
+                             fontSize = 13.sp,
+                             color = Color.White
                          ),
                          maxLines = 1,
                          overflow = TextOverflow.Ellipsis
                      )
                  }
-                 if (notif.isMedia) {
-                     Spacer(modifier = Modifier.weight(1f))
-                     Icon(
-                         painter = painterResource(id = R.drawable.rounded_music_note_24),
-                         contentDescription = null,
-                         modifier = Modifier.size(14.dp),
-                         tint = lightAccentColor
-                     )
-                 } else if (notif.canReply) {
-                     Spacer(modifier = Modifier.weight(1f))
-                     Icon(
-                         painter = painterResource(id = R.drawable.rounded_reply_24),
-                         contentDescription = null,
-                         modifier = Modifier.size(14.dp),
-                         tint = lightAccentColor
+                 if (notif.text.isNotBlank()) {
+                     Text(
+                         text = notif.text,
+                         style = TextStyle(
+                             fontFamily = GoogleSansFlexRounded,
+                             fontSize = 12.sp,
+                             color = Color.LightGray
+                         ),
+                         maxLines = 1,
+                         overflow = TextOverflow.Ellipsis,
+                         modifier = Modifier.padding(top = 1.dp)
                      )
                  }
              }
-             Spacer(modifier = Modifier.height(2.dp))
-             if (notif.title.isNotBlank()) {
-                Text(
-                    text = notif.title,
-                    style = TextStyle(
-                        fontFamily = GoogleSansFlexRounded,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = Color.White
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (notif.text.isNotBlank()) {
-                Text(
-                    text = notif.text,
-                    style = TextStyle(
-                        fontFamily = GoogleSansFlexRounded,
-                        fontSize = 12.sp,
-                        color = Color.LightGray
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 1.dp)
-                )
-            }
-         }
+        }
     }
 }
 
@@ -1292,6 +1311,100 @@ fun NotificationDetailSheet(
                         )
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun BottomNotificationIndicator(
+    notifications: List<WatchNotificationItem>,
+    lightAccentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    // Read directly from SnapshotStateList — remember(notifications) uses object reference
+    // as key which never changes, so derived values would never recompute.
+    val regularNotifs = notifications.filter { !it.isMedia }.sortedByDescending { it.postTime }
+    val hasMedia = notifications.any { it.isMedia }
+
+    if (regularNotifs.isEmpty() && !hasMedia) return
+
+    val visibleNotifs = regularNotifs.take(3)
+    val hasMore = regularNotifs.size > 3
+
+    // anchor=85f keeps content off the very edge. CurvedLayout at the bottom renders
+    // items right-to-left visually, so we declare them in reverse display order:
+    // hasMore dot → notifications (newest-last) → separator dot → music icon
+    // which renders on screen as: music icon · notif1 notif2 notif3 · dot
+    CurvedLayout(
+        anchor = 85f,
+        modifier = modifier
+    ) {
+        if (hasMore) {
+            curvedComposable {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .size(4.dp)
+                        .background(Color.Gray, CircleShape)
+                        .graphicsLayer { rotationZ = 180f }
+                )
+            }
+        }
+
+        visibleNotifs.reversed().forEach { notif ->
+            curvedComposable {
+                val bitmap = remember(notif.iconBase64) {
+                    if (notif.iconBase64.isNotBlank()) {
+                        try {
+                            val bytes = android.util.Base64.decode(notif.iconBase64, android.util.Base64.NO_WRAP)
+                            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        } catch (e: Exception) { null }
+                    } else null
+                }
+                if (bitmap != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp)
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .graphicsLayer { rotationZ = 180f }
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp)
+                            .size(8.dp)
+                            .background(lightAccentColor, CircleShape)
+                            .graphicsLayer { rotationZ = 180f }
+                    )
+                }
+            }
+        }
+
+        if (hasMedia) {
+            if (visibleNotifs.isNotEmpty()) {
+                curvedComposable {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .size(4.dp)
+                            .background(Color.Gray, CircleShape)
+                            .graphicsLayer { rotationZ = 180f }
+                    )
+                }
+            }
+            curvedComposable {
+                Icon(
+                    painter = painterResource(id = R.drawable.rounded_music_note_24),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer { rotationZ = 180f },
+                    tint = lightAccentColor
+                )
             }
         }
     }
