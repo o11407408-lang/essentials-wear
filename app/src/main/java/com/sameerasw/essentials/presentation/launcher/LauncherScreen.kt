@@ -82,6 +82,7 @@ import androidx.compose.foundation.lazy.items as lazyRowItems
 import androidx.wear.compose.foundation.CurvedLayout
 import androidx.wear.compose.foundation.CurvedTextStyle
 import androidx.wear.compose.foundation.curvedComposable
+import androidx.wear.compose.foundation.lazy.AutoCenteringParams
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.ScalingLazyListState
 import androidx.wear.compose.foundation.lazy.items
@@ -171,6 +172,10 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
         // Auto-reset notification list to top when swiping to it
         if (pagerState.currentPage == 2) {
             notifListState.scrollToItem(0)
+        }
+        // Auto-scroll QS to bottom when swiping to it
+        if (pagerState.currentPage == 0) {
+            qsListState.scrollToItem(2) // Scroll to the last row
         }
     }
 
@@ -641,7 +646,8 @@ fun QuickSettingsPage(
         modifier = Modifier.fillMaxSize(),
         state = listState,
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
+        autoCentering = AutoCenteringParams(itemIndex = rows.size - 1)
     ) {
         items(rows.size) { rowIndex ->
             val rowItems = rows[rowIndex]
