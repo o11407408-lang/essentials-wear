@@ -7,6 +7,11 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -78,6 +83,7 @@ import androidx.wear.compose.material.Text
 import com.google.android.gms.wearable.Wearable
 import com.sameerasw.essentials.R
 import com.sameerasw.essentials.presentation.components.EssentialsTimeText
+import com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded
 import com.sameerasw.essentials.presentation.theme.GoogleSansFlexRoundedWide
 import com.sameerasw.essentials.utils.HapticUtil
 import com.sameerasw.essentials.utils.ThemeUtil
@@ -378,7 +384,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
 
     LaunchedEffect(activeNewNotification, overlayTimeoutKey) {
         if (activeNewNotification != null) {
-            delay(7000)
+            delay(10000)
             activeNewNotification = null
         }
     }
@@ -387,7 +393,8 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
         timeText = {
             EssentialsTimeText(
                 showWatchBattery = true,
-                showTime = pagerState.currentPage != 1 || activeNewNotification != null
+                showTime = pagerState.currentPage != 1 || activeNewNotification != null,
+                showDate = pagerState.currentPage == 0 // Show date in Quick Settings
             )
         }
     ) {
@@ -425,21 +432,28 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
                 }
             }
 
-            activeNewNotification?.let { notif ->
-                NewNotificationOverlay(
-                    notification = notif,
-                    lightAccentColor = lightAccentColor,
-                    onDismissOverlay = { activeNewNotification = null },
-                    onDismissNotification = {
-                        dismissNotificationOnPhoneAndWatch(notif.key)
-                        activeNewNotification = null
-                    },
-                    onReply = {
-                        replyTargetNotification = notif
-                        activeNewNotification = null
-                    },
-                    onInteraction = { overlayTimeoutKey++ }
-                )
+            AnimatedVisibility(
+                visible = activeNewNotification != null,
+                enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                activeNewNotification?.let { notif ->
+                    NewNotificationOverlay(
+                        notification = notif,
+                        lightAccentColor = lightAccentColor,
+                        onDismissOverlay = { activeNewNotification = null },
+                        onDismissNotification = {
+                            dismissNotificationOnPhoneAndWatch(notif.key)
+                            activeNewNotification = null
+                        },
+                        onReply = {
+                            replyTargetNotification = notif
+                            activeNewNotification = null
+                        },
+                        onInteraction = { overlayTimeoutKey++ }
+                    )
+                }
             }
 
             detailTargetNotification?.let { notif ->
@@ -661,7 +675,7 @@ fun NotificationsPage(
                 ScalingLazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 32.dp)
+                    contentPadding = PaddingValues(vertical = 32.dp, horizontal = 8.dp)
                 ) {
                     if (mediaNotifications.isNotEmpty()) {
                         item {
@@ -669,8 +683,7 @@ fun NotificationsPage(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 8.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = if (mediaNotifications.size == 1) Arrangement.Center else Arrangement.spacedBy(8.dp)
                             ) {
                                 lazyRowItems(mediaNotifications, key = { it.key }) { notif ->
                                     WatchNotificationCardItem(
@@ -721,7 +734,12 @@ fun NotificationsPage(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "Clear All",
-                                    style = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Color.White)
+                                    style = TextStyle(
+                                        fontFamily = GoogleSansFlexRounded,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 12.sp,
+                                        color = Color.White
+                                    )
                                 )
                             }
                         }
@@ -754,7 +772,7 @@ fun WatchNotificationCardItem(
     }
     
     val baseModifier = if (isHorizontal) {
-        Modifier.width(155.dp)
+        Modifier.width(170.dp)
     } else {
         Modifier.fillMaxWidth()
     }
@@ -780,14 +798,14 @@ fun WatchNotificationCardItem(
 
     Box(
         modifier = interactiveModifier
-            .padding(vertical = 2.dp)
+            .padding(vertical = 1.dp) // even more compact
             .background(color = Color(0xFF141414), shape = RoundedCornerShape(24.dp)) // Dark base
             .background(color = cardBg, shape = RoundedCornerShape(24.dp)) // Accent tint
             .clickable {
                 HapticUtil.performUIHaptic(view)
                 onSelectDetail(notif)
             }
-            .padding(12.dp)
+            .padding(vertical = 10.dp, horizontal = 12.dp)
     ) {
          Column {
              Row(verticalAlignment = Alignment.CenterVertically) {
@@ -810,7 +828,12 @@ fun WatchNotificationCardItem(
                  if (notif.appName.isNotBlank() && !notif.isMedia) {
                      Text(
                          text = notif.appName,
-                         style = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = lightAccentColor),
+                         style = TextStyle(
+                             fontFamily = GoogleSansFlexRounded,
+                             fontWeight = FontWeight.SemiBold,
+                             fontSize = 11.sp,
+                             color = lightAccentColor
+                         ),
                          maxLines = 1,
                          overflow = TextOverflow.Ellipsis
                      )
@@ -826,18 +849,23 @@ fun WatchNotificationCardItem(
                  } else if (notif.canReply) {
                      Spacer(modifier = Modifier.weight(1f))
                      Icon(
-                         painter = painterResource(id = R.drawable.rounded_mobile_text_2_24),
+                         painter = painterResource(id = R.drawable.rounded_reply_24),
                          contentDescription = null,
                          modifier = Modifier.size(14.dp),
                          tint = lightAccentColor
                      )
                  }
              }
-             Spacer(modifier = Modifier.height(4.dp))
+             Spacer(modifier = Modifier.height(2.dp))
              if (notif.title.isNotBlank()) {
                 Text(
                     text = notif.title,
-                    style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.White),
+                    style = TextStyle(
+                        fontFamily = GoogleSansFlexRounded,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color.White
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -845,10 +873,14 @@ fun WatchNotificationCardItem(
             if (notif.text.isNotBlank()) {
                 Text(
                     text = notif.text,
-                    style = TextStyle(fontSize = 12.sp, color = Color.LightGray),
+                    style = TextStyle(
+                        fontFamily = GoogleSansFlexRounded,
+                        fontSize = 12.sp,
+                        color = Color.LightGray
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp)
+                    modifier = Modifier.padding(top = 1.dp)
                 )
             }
          }
@@ -869,6 +901,12 @@ fun NewNotificationOverlay(
 
     var totalDragX by remember { mutableStateOf(0f) }
     var totalDragY by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        if (scrollState.isScrollInProgress) {
+            onInteraction()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -931,20 +969,9 @@ fun NewNotificationOverlay(
             }
             item {
                 Text(
-                    text = notification.appName.uppercase(),
-                    style = TextStyle(
-                        fontSize = 11.sp,
-                        color = lightAccentColor,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
-                    ),
-                    modifier = Modifier.padding(top = 10.dp)
-                )
-            }
-            item {
-                Text(
                     text = notification.title.ifBlank { "Notification" },
                     style = TextStyle(
+                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRoundedWide,
                         fontSize = 18.sp,
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
@@ -957,6 +984,7 @@ fun NewNotificationOverlay(
                 Text(
                     text = notification.text,
                     style = TextStyle(
+                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
                         fontSize = 15.sp,
                         color = Color.LightGray,
                         textAlign = TextAlign.Center,
@@ -980,7 +1008,7 @@ fun NewNotificationOverlay(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                painter = painterResource(id = R.drawable.rounded_mobile_text_2_24),
+                                painter = painterResource(id = R.drawable.rounded_reply_24),
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp),
                                 tint = Color.Black
@@ -988,7 +1016,12 @@ fun NewNotificationOverlay(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Reply",
-                                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.Black)
+                                style = TextStyle(
+                                    fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = Color.Black
+                                )
                             )
                         }
                     }
@@ -1010,8 +1043,6 @@ fun ReplySheet(
     val quickReplies = remember {
         listOf(
             "OK 👍",
-            "Yes",
-            "No",
             "Thanks!",
             "On my way 🚗",
             "Call you later 📞"
@@ -1023,51 +1054,61 @@ fun ReplySheet(
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.9f))
             .clickable { onDismissRequest() },
-        contentAlignment = Alignment.BottomCenter
+        contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF1E1E1E), shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(Color(0xFF1E1E1E), shape = RoundedCornerShape(24.dp))
                 .clickable(enabled = false) {}
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = "Reply to ${notification.appName.ifBlank { "Message" }}",
-                style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 13.sp, color = lightAccentColor),
+                style = TextStyle(
+                    fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = lightAccentColor
+                ),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(110.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 quickReplies.forEach { replyOption ->
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 2.dp)
-                            .background(Color(0xFF2A2A2A), shape = RoundedCornerShape(16.dp))
+                            .padding(vertical = 3.dp)
+                            .background(Color(0xFF2A2A2A), shape = RoundedCornerShape(20.dp))
                             .clickable {
                                 HapticUtil.performUIHaptic(view)
                                 onSendReply(replyOption)
                             }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = replyOption,
-                            style = TextStyle(fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                            style = TextStyle(
+                                fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                                fontSize = 13.sp,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            )
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1078,9 +1119,13 @@ fun ReplySheet(
                     onValueChange = { customText = it },
                     modifier = Modifier
                         .weight(1f)
-                        .background(Color(0xFF2A2A2A), shape = RoundedCornerShape(16.dp))
+                        .background(Color(0xFF2A2A2A), shape = RoundedCornerShape(20.dp))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+                    textStyle = TextStyle(
+                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                        color = Color.White,
+                        fontSize = 13.sp
+                    ),
                     singleLine = true
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -1121,12 +1166,12 @@ fun NotificationDetailSheet(
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.92f))
             .clickable { onDismissRequest() },
-        contentAlignment = Alignment.BottomCenter
+        contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF1E1E1E), shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .fillMaxWidth(0.92f)
+                .background(Color(0xFF1E1E1E), shape = RoundedCornerShape(24.dp))
                 .clickable(enabled = false) {}
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -1150,38 +1195,54 @@ fun NotificationDetailSheet(
                 }
                 Text(
                     text = notification.appName.ifBlank { "Notification" },
-                    style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 13.sp, color = lightAccentColor),
+                    style = TextStyle(
+                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = lightAccentColor
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             if (notification.title.isNotBlank()) {
                 Text(
                     text = notification.title,
-                    style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White, textAlign = TextAlign.Center),
-                    modifier = Modifier.padding(bottom = 4.dp)
+                    style = TextStyle(
+                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    ),
+                    modifier = Modifier.padding(bottom = 6.dp)
                 )
             }
 
             if (notification.text.isNotBlank()) {
                 Text(
                     text = notification.text,
-                    style = TextStyle(fontSize = 12.sp, color = Color.LightGray, textAlign = TextAlign.Center),
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    style = TextStyle(
+                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                        fontSize = 13.sp,
+                        color = Color.LightGray,
+                        textAlign = TextAlign.Center
+                    ),
+                    modifier = Modifier.padding(bottom = 16.dp)
                 )
             }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.Center
             ) {
                 if (notification.canReply && onReply != null) {
                     Box(
                         modifier = Modifier
-                            .background(lightAccentColor, shape = RoundedCornerShape(16.dp))
+                            .background(lightAccentColor, shape = RoundedCornerShape(20.dp))
                             .clickable {
                                 HapticUtil.performUIHaptic(view)
                                 onDismissRequest()
@@ -1189,13 +1250,31 @@ fun NotificationDetailSheet(
                             }
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        Text(text = "Reply", style = TextStyle(color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.rounded_reply_24),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.Black
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Reply",
+                                style = TextStyle(
+                                    fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                                    color = Color.Black,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            )
+                        }
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
 
                 Box(
                     modifier = Modifier
-                        .background(Color(0xFF3A2323), shape = RoundedCornerShape(16.dp))
+                        .background(Color(0xFF3A2323), shape = RoundedCornerShape(20.dp))
                         .clickable {
                             HapticUtil.performUIHaptic(view)
                             onDismissNotification(notification.key)
@@ -1203,7 +1282,15 @@ fun NotificationDetailSheet(
                         }
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    Text(text = "Dismiss", style = TextStyle(color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold, fontSize = 12.sp))
+                    Text(
+                        text = "Dismiss",
+                        style = TextStyle(
+                            fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                            color = Color(0xFFFF6B6B),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    )
                 }
             }
         }

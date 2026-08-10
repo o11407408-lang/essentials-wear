@@ -36,6 +36,7 @@ import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Scaffold
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
 import com.sameerasw.essentials.presentation.theme.EssentialsTheme
+import com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded
 import com.sameerasw.essentials.utils.HapticUtil
 import com.sameerasw.essentials.utils.ThemeUtil
 import kotlinx.coroutines.flow.distinctUntilChanged

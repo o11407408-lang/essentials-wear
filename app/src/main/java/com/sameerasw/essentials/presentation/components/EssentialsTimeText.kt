@@ -5,8 +5,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,13 +22,16 @@ import androidx.wear.compose.foundation.lazy.ScalingLazyListState
 import androidx.wear.compose.material.*
 import com.sameerasw.essentials.R
 import com.sameerasw.essentials.utils.ThemeUtil
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun EssentialsTimeText(
     modifier: Modifier = Modifier,
     scrollState: ScalingLazyListState? = null,
     showWatchBattery: Boolean = false,
-    showTime: Boolean = true
+    showTime: Boolean = true,
+    showDate: Boolean = false
 ) {
     val context = LocalContext.current
 
@@ -94,11 +99,15 @@ fun EssentialsTimeText(
             }
         }
 
+        val dateFormatter = remember { DateTimeFormatter.ofPattern("EEE, MMM d") }
+        val formattedDate = remember { LocalDate.now().format(dateFormatter) }
+
         TimeText(
             modifier = modifier,
             timeSource = if (showTime) TimeTextDefaults.timeSource(TimeTextDefaults.timeFormat()) else emptyTimeSource,
-            textLinearSeparator = if (showTime) { { TimeTextDefaults.TextSeparator() } } else { {} },
-            textCurvedSeparator = if (showTime) { { with(TimeTextDefaults) { CurvedTextSeparator() } } } else { {} },
+            timeTextStyle = typography.caption1.copy(color = lightAccentColor),
+            textLinearSeparator = if (showTime) { { TimeTextDefaults.TextSeparator(textStyle = typography.caption1.copy(color = Color.LightGray)) } } else { {} },
+            textCurvedSeparator = if (showTime) { { with(TimeTextDefaults) { CurvedTextSeparator(curvedTextStyle = CurvedTextStyle(typography.caption1.copy(color = Color.LightGray))) } } } else { {} },
             startLinearContent = if (watchBatteryLevel != -1) {
                 {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -106,13 +115,13 @@ fun EssentialsTimeText(
                             painter = painterResource(id = batteryIcon),
                             contentDescription = null,
                             modifier = Modifier.size(14.dp),
-                            tint = lightAccentColor
+                            tint = Color.LightGray
                         )
                         Text(
                             text = "$watchBatteryLevel%",
                             style = typography.caption1,
                             modifier = Modifier.padding(start = 2.dp),
-                            color = lightAccentColor
+                            color = Color.LightGray
                         )
                     }
                 }
@@ -124,12 +133,31 @@ fun EssentialsTimeText(
                             painter = painterResource(id = batteryIcon),
                             contentDescription = null,
                             modifier = Modifier.size(14.dp),
-                            tint = lightAccentColor
+                            tint = Color.LightGray
                         )
                     }
                     curvedText(
                         text = " $watchBatteryLevel%",
-                        style = CurvedTextStyle(typography.caption1.copy(color = lightAccentColor))
+                        style = CurvedTextStyle(typography.caption1.copy(color = Color.LightGray))
+                    )
+                }
+            } else null,
+            endLinearContent = if (showDate) {
+                {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = " $formattedDate",
+                            style = typography.caption1,
+                            color = Color.LightGray
+                        )
+                    }
+                }
+            } else null,
+            endCurvedContent = if (showDate) {
+                {
+                    curvedText(
+                        text = " $formattedDate",
+                        style = CurvedTextStyle(typography.caption1.copy(color = Color.LightGray))
                     )
                 }
             } else null
