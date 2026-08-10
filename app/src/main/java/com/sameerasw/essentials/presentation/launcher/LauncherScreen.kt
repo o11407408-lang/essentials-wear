@@ -197,6 +197,8 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
     var replyTargetNotification by remember { mutableStateOf<WatchNotificationItem?>(null) }
     var detailTargetNotification by remember { mutableStateOf<WatchNotificationItem?>(null) }
     var overlayTimeoutKey by remember { mutableStateOf(0) }
+    var crownAccumulator by remember { mutableStateOf(0f) }
+    val crownThreshold = 80f
 
     fun playNotificationSound(context: Context) {
         if (audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
@@ -392,6 +394,10 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
         }
     }
 
+    LaunchedEffect(pagerState.currentPage) {
+        crownAccumulator = 0f
+    }
+
     Scaffold(
         timeText = {
             EssentialsTimeText(
@@ -406,10 +412,24 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>) {
                 .fillMaxSize()
                 .onRotaryScrollEvent { event ->
                     val rawDelta = event.verticalScrollPixels
-                    if (pagerState.currentPage == 2) {
-                        notifListState.dispatchRawDelta(rawDelta)
-                        true
-                    } else false
+                    when (pagerState.currentPage) {
+                        2 -> {
+                            notifListState.dispatchRawDelta(rawDelta)
+                            true
+                        }
+                        1 -> {
+                            crownAccumulator += rawDelta
+                            if (crownAccumulator > crownThreshold) {
+                                crownAccumulator = 0f
+                                scope.launch { pagerState.animateScrollToPage(2) }
+                            } else if (crownAccumulator < -crownThreshold) {
+                                crownAccumulator = 0f
+                                scope.launch { pagerState.animateScrollToPage(0) }
+                            }
+                            true
+                        }
+                        else -> false
+                    }
                 }
                 .focusRequester(focusRequester)
                 .focusable()
