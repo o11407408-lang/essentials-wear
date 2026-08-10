@@ -18,6 +18,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -556,88 +557,237 @@ fun QuickSettingsPage(
 ) {
     val context = LocalContext.current
     val view = LocalView.current
+
+    val bubbleColors = ButtonDefaults.buttonColors(
+        backgroundColor = lightAccentColor,
+        contentColor = Color.Black
+    )
+
+    val inactiveBubbleColors = ButtonDefaults.buttonColors(
+        backgroundColor = tonedThemeColor,
+        contentColor = Color.White
+    )
+
+    fun sendMessage(path: String, data: ByteArray = byteArrayOf()) {
+        val nodeClient = Wearable.getNodeClient(context)
+        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
+            val messageClient = Wearable.getMessageClient(context)
+            for (node in nodes) {
+                messageClient.sendMessage(node.id, path, data)
+            }
+        }
+    }
+
+    var aodEnabled by remember {
+        mutableStateOf(Settings.Secure.getInt(context.contentResolver, "doze_enabled", 0) != 0)
+    }
+    var powerSavingEnabled by remember {
+        mutableStateOf(Settings.Global.getInt(context.contentResolver, "low_power", 0) != 0)
+    }
+
+    // Update states periodically while visible
+    LaunchedEffect(Unit) {
+        while (true) {
+            aodEnabled = Settings.Secure.getInt(context.contentResolver, "doze_enabled", 0) != 0
+            powerSavingEnabled = Settings.Global.getInt(context.contentResolver, "low_power", 0) != 0
+            delay(2000)
+        }
+    }
+
+    // List of keys, reversed as requested
+    val activeKeys = remember {
+        listOf("POWER_SAVING", "AOD", "LOCK", "FLASHLIGHT", "PHONE", "SOUND", "SETTINGS")
+    }
     
-    Box(
+    val rows = remember(activeKeys) {
+        val result = mutableListOf<List<String>>()
+        var index = 0
+        var size = 3
+        while (index < activeKeys.size) {
+            result.add(activeKeys.subList(index, minOf(index + size, activeKeys.size)))
+            index += size
+            size = if (size == 3) 2 else 3
+        }
+        result
+    }
+
+    val listState = rememberScalingLazyListState()
+
+    ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
+        state = listState,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 20.dp)
-        ) {
+        items(rows.size) { rowIndex ->
+            val rowItems = rows[rowIndex]
             Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(
-                    onClick = {
-                        HapticUtil.performPageSwitchHaptic(view)
-                        try {
-                            val intent = Intent(Settings.ACTION_SETTINGS).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                for (key in rowItems) {
+                    when (key) {
+                        "SETTINGS" -> {
+                            Button(
+                                onClick = {
+                                    HapticUtil.performPageSwitchHaptic(view)
+                                    try {
+                                        val intent = Intent(Settings.ACTION_SETTINGS).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {}
+                                    focusRequester.requestFocus()
+                                },
+                                modifier = Modifier.size(52.dp),
+                                colors = inactiveBubbleColors
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.rounded_settings_heart_24),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
                             }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {}
-                        focusRequester.requestFocus()
-                    },
-                    modifier = Modifier.size(56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        backgroundColor = tonedThemeColor,
-                        contentColor = Color.White
-                    )
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.rounded_settings_heart_24),
-                        contentDescription = null,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-
-                val isNormal = watchRingerMode == AudioManager.RINGER_MODE_NORMAL
-                val soundModeColors = if (!isNormal) {
-                    ButtonDefaults.buttonColors(
-                        backgroundColor = lightAccentColor,
-                        contentColor = Color.Black
-                    )
-                } else {
-                    ButtonDefaults.buttonColors(
-                        backgroundColor = tonedThemeColor,
-                        contentColor = Color.White
-                    )
-                }
-
-                val soundIcon = when (watchRingerMode) {
-                    AudioManager.RINGER_MODE_VIBRATE -> R.drawable.rounded_mobile_vibrate_24
-                    AudioManager.RINGER_MODE_SILENT -> R.drawable.rounded_volume_off_24
-                    else -> R.drawable.rounded_volume_up_24
-                }
-
-                Button(
-                    onClick = {
-                        HapticUtil.performPageSwitchHaptic(view)
-                        val nextMode = when (watchRingerMode) {
-                            AudioManager.RINGER_MODE_NORMAL -> AudioManager.RINGER_MODE_VIBRATE
-                            AudioManager.RINGER_MODE_VIBRATE -> AudioManager.RINGER_MODE_SILENT
-                            else -> AudioManager.RINGER_MODE_NORMAL
                         }
-                        try {
-                            audioManager.ringerMode = nextMode
-                            onRingerModeChanged(audioManager.ringerMode)
-                        } catch (e: Exception) {}
-                        focusRequester.requestFocus()
-                    },
-                    modifier = Modifier.size(56.dp),
-                    colors = soundModeColors
-                ) {
-                    Icon(
-                        painter = painterResource(id = soundIcon),
-                        contentDescription = null,
-                        modifier = Modifier.size(26.dp)
-                    )
+                        "SOUND" -> {
+                            val isNormal = watchRingerMode == AudioManager.RINGER_MODE_NORMAL
+                            val soundModeColors = if (!isNormal) bubbleColors else inactiveBubbleColors
+                            val soundIcon = when (watchRingerMode) {
+                                AudioManager.RINGER_MODE_VIBRATE -> R.drawable.rounded_mobile_vibrate_24
+                                AudioManager.RINGER_MODE_SILENT -> R.drawable.rounded_volume_off_24
+                                else -> R.drawable.rounded_volume_up_24
+                            }
+
+                            Button(
+                                onClick = {
+                                    HapticUtil.performUIHaptic(view)
+                                    val nextMode = when (watchRingerMode) {
+                                        AudioManager.RINGER_MODE_NORMAL -> AudioManager.RINGER_MODE_VIBRATE
+                                        AudioManager.RINGER_MODE_VIBRATE -> AudioManager.RINGER_MODE_SILENT
+                                        else -> AudioManager.RINGER_MODE_NORMAL
+                                    }
+                                    try {
+                                        audioManager.ringerMode = nextMode
+                                        onRingerModeChanged(audioManager.ringerMode)
+                                    } catch (e: Exception) {}
+                                    focusRequester.requestFocus()
+                                },
+                                modifier = Modifier.size(52.dp),
+                                colors = soundModeColors
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = soundIcon),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        "PHONE" -> {
+                            Button(
+                                onClick = {
+                                    HapticUtil.performUIHaptic(view)
+                                    try {
+                                        val intent = Intent(context, com.sameerasw.essentials.presentation.MainActivity::class.java).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            putExtra(com.sameerasw.essentials.presentation.MainActivity.EXTRA_NAVIGATE_TO, com.sameerasw.essentials.presentation.MainActivity.NAV_YOUR_ANDROID)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {}
+                                },
+                                modifier = Modifier.size(52.dp),
+                                colors = inactiveBubbleColors
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.rounded_mobile_24),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        "FLASHLIGHT" -> {
+                            Button(
+                                onClick = {
+                                    HapticUtil.performUIHaptic(view)
+                                    try {
+                                        val intent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.wearable.flashlight")
+                                        if (intent != null) {
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            context.startActivity(intent)
+                                        }
+                                    } catch (e: Exception) {}
+                                },
+                                modifier = Modifier.size(52.dp),
+                                colors = inactiveBubbleColors
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.rounded_flashlight_on_24),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        "LOCK" -> {
+                            Button(
+                                onClick = {
+                                    HapticUtil.performUIHaptic(view)
+                                    sendMessage("/lock_device")
+                                },
+                                modifier = Modifier.size(52.dp),
+                                colors = inactiveBubbleColors
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.rounded_lock_24),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        "AOD" -> {
+                            val aodColors = if (aodEnabled) bubbleColors else inactiveBubbleColors
+                            Button(
+                                onClick = {
+                                    HapticUtil.performUIHaptic(view)
+                                    try {
+                                        val newValue = if (aodEnabled) 0 else 1
+                                        Settings.Secure.putInt(context.contentResolver, "doze_enabled", newValue)
+                                        aodEnabled = newValue != 0
+                                    } catch (e: Exception) {}
+                                },
+                                modifier = Modifier.size(52.dp),
+                                colors = aodColors
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = if (aodEnabled) R.drawable.rounded_mobile_text_2_24 else R.drawable.rounded_mobile_off_24),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        "POWER_SAVING" -> {
+                            val psColors = if (powerSavingEnabled) bubbleColors else inactiveBubbleColors
+                            Button(
+                                onClick = {
+                                    HapticUtil.performUIHaptic(view)
+                                    try {
+                                        val newValue = if (powerSavingEnabled) 0 else 1
+                                        Settings.Global.putInt(context.contentResolver, "low_power", newValue)
+                                        powerSavingEnabled = newValue != 0
+                                    } catch (e: Exception) {}
+                                },
+                                modifier = Modifier.size(52.dp),
+                                colors = psColors
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.rounded_battery_android_alert_24),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
