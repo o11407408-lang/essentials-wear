@@ -4,6 +4,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -307,7 +308,7 @@ fun SettingsScreen() {
                 onClick = {
                     HapticUtil.performUIHaptic(view)
                     if (!granted) {
-                        android.widget.Toast.makeText(context, "Grant manually via ADB", android.widget.Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, context.getString(R.string.grant_manually_adb), Toast.LENGTH_LONG).show()
                     }
                 },
                 icon = painterResource(R.drawable.rounded_lock_24),

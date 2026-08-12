@@ -1,5 +1,6 @@
 package com.sameerasw.essentials.services
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -18,6 +19,7 @@ import com.sameerasw.essentials.tile.MainTileService
 import com.sameerasw.essentials.tile.PhoneBatteryTileService
 import com.sameerasw.essentials.utils.HapticUtil
 import com.sameerasw.essentials.utils.SoundUtil
+import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
 
 class CalendarDataListenerService : WearableListenerService() {
     companion object {
@@ -56,11 +58,11 @@ class CalendarDataListenerService : WearableListenerService() {
                     }
 
                     // Trigger Complication Update
-                    val componentName = android.content.ComponentName(
+                    val componentName = ComponentName(
                         this,
                         "com.sameerasw.essentials.complication.MainComplicationService"
                     )
-                    androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
+                    ComplicationDataSourceUpdateRequester
                         .create(this, componentName)
                         .requestUpdateAll()
                 }
@@ -118,11 +120,11 @@ class CalendarDataListenerService : WearableListenerService() {
                 Log.d(TAG, "Saved device info: Level=$batteryLevel, Charging=$isCharging, TravelActive=$travelActive, TravelName=$travelName")
 
                 // Trigger Battery Complication Update
-                val batteryCompName = android.content.ComponentName(
+                val batteryCompName = ComponentName(
                     this,
                     "com.sameerasw.essentials.complication.BatteryComplicationService"
                 )
-                androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
+                ComplicationDataSourceUpdateRequester
                     .create(this, batteryCompName)
                     .requestUpdateAll()
 

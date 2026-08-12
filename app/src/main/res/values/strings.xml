@@ -28,4 +28,6 @@
     <string name="launcher_sound_vibrate">Vibrate</string>
     <string name="launcher_sound_silent">Silent</string>
     <string name="launcher_notifications_empty">No notifications</string>
+    <string name="notif_replied_success">Replied ✓</string>
+    <string name="grant_manually_adb">Grant manually via ADB</string>
 </resources>

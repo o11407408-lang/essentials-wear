@@ -6,7 +6,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.SpringSpec
@@ -94,6 +96,7 @@ import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import com.google.android.gms.wearable.Wearable
 import com.sameerasw.essentials.R
+import com.sameerasw.essentials.presentation.MainActivity
 import com.sameerasw.essentials.presentation.components.EssentialsTimeText
 import com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded
 import com.sameerasw.essentials.presentation.theme.GoogleSansFlexRoundedWide
@@ -370,7 +373,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
             }
         }
         val filter = IntentFilter("com.sameerasw.essentials.NOTIFICATIONS_UPDATED")
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             context.registerReceiver(receiver, filter)
@@ -545,7 +548,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
                         sendReplyFromWatchToPhone(notif.key, replyText)
                         dismissNotificationOnPhoneAndWatch(notif.key)
                         replyTargetNotification = null
-                        android.widget.Toast.makeText(context, "Replied ✓", android.widget.Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.notif_replied_success), Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -705,9 +708,9 @@ fun QuickSettingsPage(
                                 onClick = {
                                     HapticUtil.performUIHaptic(view)
                                     try {
-                                        val intent = Intent(context, com.sameerasw.essentials.presentation.MainActivity::class.java).apply {
+                                        val intent = Intent(context, MainActivity::class.java).apply {
                                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            putExtra(com.sameerasw.essentials.presentation.MainActivity.EXTRA_NAVIGATE_TO, com.sameerasw.essentials.presentation.MainActivity.NAV_YOUR_ANDROID)
+                                            putExtra(MainActivity.EXTRA_NAVIGATE_TO, MainActivity.NAV_YOUR_ANDROID)
                                         }
                                         context.startActivity(intent)
                                     } catch (e: Exception) {}
@@ -1236,7 +1239,7 @@ fun NewNotificationOverlay(
                 Text(
                     text = notification.title.ifBlank { "Notification" },
                     style = TextStyle(
-                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRoundedWide,
+                        fontFamily = GoogleSansFlexRoundedWide,
                         fontSize = 18.sp,
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
@@ -1249,7 +1252,7 @@ fun NewNotificationOverlay(
                 Text(
                     text = notification.text,
                     style = TextStyle(
-                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                        fontFamily = GoogleSansFlexRounded,
                         fontSize = 15.sp,
                         color = Color.LightGray,
                         textAlign = TextAlign.Center,
@@ -1282,7 +1285,7 @@ fun NewNotificationOverlay(
                             Text(
                                 text = "Reply",
                                 style = TextStyle(
-                                    fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                                    fontFamily = GoogleSansFlexRounded,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     color = Color.Black
@@ -1332,7 +1335,7 @@ fun ReplySheet(
             Text(
                 text = "Reply to ${notification.appName.ifBlank { "Message" }}",
                 style = TextStyle(
-                    fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                    fontFamily = GoogleSansFlexRounded,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     color = lightAccentColor
@@ -1363,7 +1366,7 @@ fun ReplySheet(
                         Text(
                             text = replyOption,
                             style = TextStyle(
-                                fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                                fontFamily = GoogleSansFlexRounded,
                                 fontSize = 13.sp,
                                 color = Color.White,
                                 fontWeight = FontWeight.Medium
@@ -1387,7 +1390,7 @@ fun ReplySheet(
                         .background(Color(0xFF2A2A2A), shape = RoundedCornerShape(20.dp))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     textStyle = TextStyle(
-                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                        fontFamily = GoogleSansFlexRounded,
                         color = Color.White,
                         fontSize = 13.sp
                     ),
@@ -1461,7 +1464,7 @@ fun NotificationDetailSheet(
                 Text(
                     text = notification.appName.ifBlank { "Notification" },
                     style = TextStyle(
-                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                        fontFamily = GoogleSansFlexRounded,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
                         color = lightAccentColor
@@ -1477,7 +1480,7 @@ fun NotificationDetailSheet(
                 Text(
                     text = notification.title,
                     style = TextStyle(
-                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                        fontFamily = GoogleSansFlexRounded,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = Color.White,
@@ -1491,7 +1494,7 @@ fun NotificationDetailSheet(
                 Text(
                     text = notification.text,
                     style = TextStyle(
-                        fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                        fontFamily = GoogleSansFlexRounded,
                         fontSize = 13.sp,
                         color = Color.LightGray,
                         textAlign = TextAlign.Center
@@ -1526,7 +1529,7 @@ fun NotificationDetailSheet(
                             Text(
                                 text = "Reply",
                                 style = TextStyle(
-                                    fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                                    fontFamily = GoogleSansFlexRounded,
                                     color = Color.Black,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
@@ -1550,7 +1553,7 @@ fun NotificationDetailSheet(
                     Text(
                         text = "Dismiss",
                         style = TextStyle(
-                            fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRounded,
+                            fontFamily = GoogleSansFlexRounded,
                             color = Color(0xFFFF6B6B),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
