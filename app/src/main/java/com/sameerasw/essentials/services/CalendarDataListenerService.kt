@@ -1,5 +1,6 @@
 package com.sameerasw.essentials.services
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -7,14 +8,18 @@ import androidx.wear.tiles.TileService
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
-import androidx.core.app.NotificationCompat
+import android.provider.Settings
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.WearableListenerService
 import com.google.gson.Gson
+import com.sameerasw.essentials.R
 import com.sameerasw.essentials.tile.MainTileService
 import com.sameerasw.essentials.tile.PhoneBatteryTileService
+import com.sameerasw.essentials.utils.HapticUtil
+import com.sameerasw.essentials.utils.SoundUtil
+import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
 
 class CalendarDataListenerService : WearableListenerService() {
     companion object {
@@ -53,11 +58,11 @@ class CalendarDataListenerService : WearableListenerService() {
                     }
 
                     // Trigger Complication Update
-                    val componentName = android.content.ComponentName(
+                    val componentName = ComponentName(
                         this,
                         "com.sameerasw.essentials.complication.MainComplicationService"
                     )
-                    androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
+                    ComplicationDataSourceUpdateRequester
                         .create(this, componentName)
                         .requestUpdateAll()
                 }
@@ -115,11 +120,11 @@ class CalendarDataListenerService : WearableListenerService() {
                 Log.d(TAG, "Saved device info: Level=$batteryLevel, Charging=$isCharging, TravelActive=$travelActive, TravelName=$travelName")
 
                 // Trigger Battery Complication Update
-                val batteryCompName = android.content.ComponentName(
+                val batteryCompName = ComponentName(
                     this,
                     "com.sameerasw.essentials.complication.BatteryComplicationService"
                 )
-                androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
+                ComplicationDataSourceUpdateRequester
                     .create(this, batteryCompName)
                     .requestUpdateAll()
 
@@ -237,6 +242,206 @@ class CalendarDataListenerService : WearableListenerService() {
             sendStatusUpdateToPhone(this)
         } else if (messageEvent.path == "/request_watch_status") {
             sendStatusUpdateToPhone(this)
+        } else if (messageEvent.path == "/set_notification_sound") {
+            val soundName = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received set notification sound message: $soundName")
+            if (soundName.isNotBlank()) {
+                val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+                prefs.edit().putString("selected_notification_sound", soundName).apply()
+                sendBroadcast(Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                    setPackage(packageName)
+                })
+            }
+        } else if (messageEvent.path == "/watch_notification" || messageEvent.path == "/notification_sync") {
+            val jsonStr = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received watch notification message: $jsonStr")
+            if (jsonStr.isNotBlank()) {
+                handleNotificationPosted(jsonStr)
+            }
+        } else if (messageEvent.path == "/watch_notification_removed") {
+            val key = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received watch notification removed: $key")
+            if (key.isNotBlank()) {
+                handleNotificationRemoved(key)
+            }
+        } else if (messageEvent.path == "/watch_app_icons") {
+            val jsonStr = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received watch app icons message")
+            if (jsonStr.isNotBlank()) {
+                handleAppIconsReceived(jsonStr)
+            }
+        } else if (messageEvent.path == "/watch_active_notifications_sync") {
+            val jsonStr = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received watch active notifications sync message")
+            if (jsonStr.isNotBlank()) {
+                handleActiveNotificationsSync(jsonStr)
+            }
+        } else if (messageEvent.path == "/watch_call_state") {
+            val jsonStr = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received watch call state message: $jsonStr")
+            if (jsonStr.isNotBlank()) {
+                handleCallStateReceived(jsonStr)
+            }
+        }
+    }
+
+    private fun handleCallStateReceived(jsonStr: String) {
+        try {
+            val obj = org.json.JSONObject(jsonStr)
+            val state = obj.optString("state", "IDLE")
+            val number = obj.optString("number", "")
+            val name = obj.optString("contactName", "")
+            val photo = obj.optString("contactPhoto", "")
+            val isIncoming = obj.optBoolean("isIncoming", false)
+            val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+
+            val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            prefs.edit().putString("watch_call_state_json", jsonStr).apply()
+
+            if (state == "RINGING" || state == "OFFHOOK") {
+                val overlayIntent = Intent("com.sameerasw.essentials.SHOW_CALL_OVERLAY").apply {
+                    setPackage(packageName)
+                    putExtra("state", state)
+                    putExtra("number", number)
+                    putExtra("contactName", name)
+                    putExtra("contactPhoto", photo)
+                    putExtra("isIncoming", isIncoming)
+                    putExtra("timestamp", timestamp)
+                }
+                sendBroadcast(overlayIntent)
+            } else {
+                val hideIntent = Intent("com.sameerasw.essentials.HIDE_CALL_OVERLAY").apply {
+                    setPackage(packageName)
+                }
+                sendBroadcast(hideIntent)
+            }
+
+            val updateIntent = Intent("com.sameerasw.essentials.CALL_STATE_UPDATED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(updateIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing call state JSON", e)
+        }
+    }
+
+    private fun handleActiveNotificationsSync(activeArrayJson: String) {
+        try {
+            val activeArray = org.json.JSONArray(activeArrayJson)
+            val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            prefs.edit().putString("watch_notifications_json", activeArray.toString()).apply()
+            val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving active notifications sync", e)
+        }
+    }
+
+    private fun handleNotificationPosted(newNotifJson: String) {
+        try {
+            val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            val existingJson = prefs.getString("watch_notifications_json", "[]") ?: "[]"
+            val jsonArray = org.json.JSONArray(existingJson)
+            val newObj = org.json.JSONObject(newNotifJson)
+            val newKey = newObj.optString("key")
+
+            val updatedArray = org.json.JSONArray()
+            updatedArray.put(newObj) // Insert new notification at top
+
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                if (obj.optString("key") != newKey && updatedArray.length() < 30) {
+                    updatedArray.put(obj)
+                }
+            }
+
+            prefs.edit().putString("watch_notifications_json", updatedArray.toString()).apply()
+            
+            val isMedia = newObj.optBoolean("isMedia", false)
+            if (!isMedia) {
+                SoundUtil.playNotificationSound(this)
+                HapticUtil.performStrongDoubleTap(this)
+
+                val overlayEnabled = prefs.getBoolean("prefs_notification_overlay_enabled", true)
+                if (overlayEnabled) {
+                    if (isDefaultLauncher()) {
+                        Log.d(TAG, "isDefaultLauncher: true - sending broadcast")
+                        val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                            setPackage(packageName)
+                            putExtra("new_notification_json", newNotifJson)
+                        }
+                        sendBroadcast(intent)
+                    } else {
+                        Log.d(TAG, "isDefaultLauncher: false - showing accessibility overlay")
+                        autoEnableAccessibilityService()
+                        val intent = Intent("com.sameerasw.essentials.SHOW_OVERLAY").apply {
+                            setPackage(packageName)
+                            putExtra("notification_json", newNotifJson)
+                        }
+                        sendBroadcast(intent)
+                    }
+                } else {
+                    // Even if overlay is disabled, we still need to refresh the notification list if launcher is active
+                    if (isDefaultLauncher()) {
+                        val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                            setPackage(packageName)
+                        }
+                        sendBroadcast(intent)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving synced watch notification", e)
+        }
+    }
+
+    private fun handleNotificationRemoved(keyToRemove: String) {
+        try {
+            val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            val existingJson = prefs.getString("watch_notifications_json", "[]") ?: "[]"
+            val jsonArray = org.json.JSONArray(existingJson)
+            val updatedArray = org.json.JSONArray()
+
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                if (obj.optString("key") != keyToRemove) {
+                    updatedArray.put(obj)
+                }
+            }
+
+            prefs.edit().putString("watch_notifications_json", updatedArray.toString()).apply()
+            val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing synced watch notification", e)
+        }
+    }
+
+    private fun handleAppIconsReceived(jsonStr: String) {
+        try {
+            val iconsObj = org.json.JSONObject(jsonStr)
+            val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            val existingIconsJson = prefs.getString("watch_app_icons_json", "{}") ?: "{}"
+            val existingObj = org.json.JSONObject(existingIconsJson)
+
+            val keys = iconsObj.keys()
+            while (keys.hasNext()) {
+                val pkg = keys.next()
+                existingObj.put(pkg, iconsObj.getString(pkg))
+            }
+
+            prefs.edit().putString("watch_app_icons_json", existingObj.toString()).apply()
+            Log.d(TAG, "Saved synced app icons to schedule_prefs")
+            val intent = Intent("com.sameerasw.essentials.NOTIFICATIONS_UPDATED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving synced app icons", e)
         }
     }
 
@@ -256,6 +461,30 @@ class CalendarDataListenerService : WearableListenerService() {
             for (node in nodes) {
                 messageClient.sendMessage(node.id, "/watch_status_update", data)
             }
+        }
+    }
+
+    private fun isDefaultLauncher(): Boolean {
+        val intent = Intent(Intent.ACTION_MAIN)
+        intent.addCategory(Intent.CATEGORY_HOME)
+        val resolveInfo = packageManager.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        val isDefault = resolveInfo?.activityInfo?.packageName == packageName
+        Log.d(TAG, "isDefaultLauncher check: $isDefault (Default pkg: ${resolveInfo?.activityInfo?.packageName})")
+        return isDefault
+    }
+
+    private fun autoEnableAccessibilityService() {
+        val serviceName = "$packageName/${OverlayAccessibilityService::class.java.name}"
+        try {
+            val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
+            if (!enabledServices.contains(serviceName)) {
+                val newEnabledServices = if (enabledServices.isEmpty()) serviceName else "$enabledServices:$serviceName"
+                Settings.Secure.putString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, newEnabledServices)
+                Settings.Secure.putInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+                Log.d(TAG, "Successfully enabled accessibility service: $serviceName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to enable accessibility service", e)
         }
     }
 

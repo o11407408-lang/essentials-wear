@@ -20,15 +20,15 @@ android {
 
     buildTypes {
 //        optimized dev build
-        debug {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            isDebuggable = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
+//        debug {
+//            isMinifyEnabled = true
+//            isShrinkResources = true
+//            isDebuggable = false
+//            proguardFiles(
+//                getDefaultProguardFile("proguard-android-optimize.txt"),
+//                "proguard-rules.pro"
+//            )
+//        }
 //        end
 
         release {
@@ -53,6 +53,7 @@ android {
 
 dependencies {
     implementation(libs.play.services.wearable)
+    implementation(libs.wear)
     implementation(libs.gson)
     implementation(platform(libs.compose.bom))
     implementation(libs.ui)
@@ -70,6 +71,7 @@ dependencies {
     implementation(libs.horologist.compose.tools)
     implementation(libs.horologist.tiles)
     implementation(libs.watchface.complications.data.source.ktx)
+    implementation(libs.accompanist.drawablepainter)
     androidTestImplementation(libs.ui.test.junit4)
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
