@@ -30,4 +30,11 @@
     <string name="launcher_notifications_empty">No notifications</string>
     <string name="notif_replied_success">Replied ✓</string>
     <string name="grant_manually_adb">Grant manually via ADB</string>
+    <string name="call_incoming">Incoming Call</string>
+    <string name="call_active">Active Call</string>
+    <string name="call_ended">Call Ended</string>
+    <string name="call_action_answer">Answer</string>
+    <string name="call_action_reject">Decline</string>
+    <string name="call_action_end">End</string>
+    <string name="call_action_mute">Mute</string>
 </resources>

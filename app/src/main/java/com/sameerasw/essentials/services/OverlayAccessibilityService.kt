@@ -26,6 +26,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.google.android.gms.wearable.Wearable
+import com.sameerasw.essentials.presentation.launcher.CallStateData
 import com.sameerasw.essentials.presentation.launcher.NewNotificationOverlay
 import com.sameerasw.essentials.presentation.launcher.WatchNotificationItem
 import com.sameerasw.essentials.presentation.theme.EssentialsTheme
@@ -56,6 +57,16 @@ class OverlayAccessibilityService : AccessibilityService(), LifecycleOwner, View
                 }
             } else if (intent?.action == "com.sameerasw.essentials.HIDE_OVERLAY") {
                 hideOverlay()
+            } else if (intent?.action == "com.sameerasw.essentials.SHOW_CALL_OVERLAY") {
+                val state = intent.getStringExtra("state") ?: ""
+                val number = intent.getStringExtra("number") ?: ""
+                val name = intent.getStringExtra("contactName") ?: ""
+                val photo = intent.getStringExtra("contactPhoto") ?: ""
+                val isIncoming = intent.getBooleanExtra("isIncoming", false)
+                val timestamp = intent.getLongExtra("timestamp", System.currentTimeMillis())
+                showCallOverlay(CallStateData(state, number, name, photo, isIncoming, timestamp))
+            } else if (intent?.action == "com.sameerasw.essentials.HIDE_CALL_OVERLAY") {
+                hideOverlay()
             }
         }
     }
@@ -68,6 +79,8 @@ class OverlayAccessibilityService : AccessibilityService(), LifecycleOwner, View
         val filter = IntentFilter().apply {
             addAction("com.sameerasw.essentials.SHOW_OVERLAY")
             addAction("com.sameerasw.essentials.HIDE_OVERLAY")
+            addAction("com.sameerasw.essentials.SHOW_CALL_OVERLAY")
+            addAction("com.sameerasw.essentials.HIDE_CALL_OVERLAY")
         }
         registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
     }
@@ -151,6 +164,51 @@ class OverlayAccessibilityService : AccessibilityService(), LifecycleOwner, View
             }
         }
         overlayView = null
+    }
+
+    private fun showCallOverlay(callData: CallStateData) {
+        if (overlayView != null) hideOverlay()
+
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        overlayView = ComposeView(this).apply {
+            setViewTreeLifecycleOwner(this@OverlayAccessibilityService)
+            setViewTreeViewModelStoreOwner(this@OverlayAccessibilityService)
+            setViewTreeSavedStateRegistryOwner(this@OverlayAccessibilityService)
+
+            setContent {
+                EssentialsTheme {
+                    com.sameerasw.essentials.presentation.launcher.WatchCallOverlay(
+                        callData = callData,
+                        onAction = { action ->
+                            com.sameerasw.essentials.presentation.launcher.sendCallActionToPhone(this@OverlayAccessibilityService, action)
+                            if (action == "REJECT" || action == "END") {
+                                hideOverlay()
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+
+        try {
+            windowManager?.addView(overlayView, params)
+            Log.d(TAG, "Call overlay view added to WindowManager")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add call overlay view", e)
+        }
     }
 
     private fun parseNotification(jsonStr: String): WatchNotificationItem? {

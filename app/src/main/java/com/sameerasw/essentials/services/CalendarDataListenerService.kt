@@ -276,6 +276,52 @@ class CalendarDataListenerService : WearableListenerService() {
             if (jsonStr.isNotBlank()) {
                 handleActiveNotificationsSync(jsonStr)
             }
+        } else if (messageEvent.path == "/watch_call_state") {
+            val jsonStr = String(messageEvent.data ?: byteArrayOf())
+            Log.d(TAG, "Received watch call state message: $jsonStr")
+            if (jsonStr.isNotBlank()) {
+                handleCallStateReceived(jsonStr)
+            }
+        }
+    }
+
+    private fun handleCallStateReceived(jsonStr: String) {
+        try {
+            val obj = org.json.JSONObject(jsonStr)
+            val state = obj.optString("state", "IDLE")
+            val number = obj.optString("number", "")
+            val name = obj.optString("contactName", "")
+            val photo = obj.optString("contactPhoto", "")
+            val isIncoming = obj.optBoolean("isIncoming", false)
+            val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+
+            val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            prefs.edit().putString("watch_call_state_json", jsonStr).apply()
+
+            if (state == "RINGING" || state == "OFFHOOK") {
+                val overlayIntent = Intent("com.sameerasw.essentials.SHOW_CALL_OVERLAY").apply {
+                    setPackage(packageName)
+                    putExtra("state", state)
+                    putExtra("number", number)
+                    putExtra("contactName", name)
+                    putExtra("contactPhoto", photo)
+                    putExtra("isIncoming", isIncoming)
+                    putExtra("timestamp", timestamp)
+                }
+                sendBroadcast(overlayIntent)
+            } else {
+                val hideIntent = Intent("com.sameerasw.essentials.HIDE_CALL_OVERLAY").apply {
+                    setPackage(packageName)
+                }
+                sendBroadcast(hideIntent)
+            }
+
+            val updateIntent = Intent("com.sameerasw.essentials.CALL_STATE_UPDATED").apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(updateIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing call state JSON", e)
         }
     }
 

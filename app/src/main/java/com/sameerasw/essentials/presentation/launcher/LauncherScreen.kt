@@ -108,6 +108,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -209,6 +210,7 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
         }
     }
 
+    val prefs = remember { context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE) }
     // Immutable list reference replaced on every update so child composables always recompose
     var notifications by remember { mutableStateOf(listOf<WatchNotificationItem>()) }
     var activeNewNotification by remember { mutableStateOf<WatchNotificationItem?>(null) }
@@ -220,11 +222,10 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
 
     fun loadNotifications() {
         try {
-            val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
             val jsonStr = prefs.getString("watch_notifications_json", "[]") ?: "[]"
             val jsonArray = JSONArray(jsonStr)
             val iconsJsonStr = prefs.getString("watch_app_icons_json", "{}") ?: "{}"
-            val iconsObj = org.json.JSONObject(iconsJsonStr)
+            val iconsObj = JSONObject(iconsJsonStr)
 
             val now = System.currentTimeMillis()
             val maxAgeMs = 48 * 60 * 60 * 1000L
@@ -372,7 +373,15 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
                 loadNotifications()
             }
         }
-        val filter = IntentFilter("com.sameerasw.essentials.NOTIFICATIONS_UPDATED")
+        val filter = IntentFilter().apply {
+            addAction("com.sameerasw.essentials.NOTIFICATIONS_UPDATED")
+            addAction("com.sameerasw.essentials.CALL_STATE_UPDATED")
+        }
+        val callStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                loadNotifications()
+            }
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
@@ -549,6 +558,39 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
                         dismissNotificationOnPhoneAndWatch(notif.key)
                         replyTargetNotification = null
                         Toast.makeText(context, context.getString(R.string.notif_replied_success), Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
+
+            // In-Call Overlay inside Launcher Screen
+            val callStateJson = prefs.getString("watch_call_state_json", null)
+            val callData = remember(callStateJson) {
+                if (!callStateJson.isNullOrBlank()) {
+                    try {
+                        val obj = JSONObject(callStateJson)
+                        val st = obj.optString("state", "IDLE")
+                        if (st == "RINGING" || st == "OFFHOOK") {
+                            CallStateData(
+                                state = st,
+                                number = obj.optString("number", ""),
+                                contactName = obj.optString("contactName", ""),
+                                contactPhotoBase64 = obj.optString("contactPhoto", ""),
+                                isIncoming = obj.optBoolean("isIncoming", false),
+                                timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+                            )
+                        } else null
+                    } catch (e: Exception) { null }
+                } else null
+            }
+
+            callData?.let { data ->
+                WatchCallOverlay(
+                    callData = data,
+                    onAction = { action ->
+                        sendCallActionToPhone(context, action)
+                        if (action == "REJECT" || action == "END") {
+                            prefs.edit().remove("watch_call_state_json").apply()
+                        }
                     }
                 )
             }
