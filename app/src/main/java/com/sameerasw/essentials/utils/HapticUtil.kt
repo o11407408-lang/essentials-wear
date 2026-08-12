@@ -47,4 +47,32 @@ object HapticUtil {
     fun performStrongDoubleTap(view: View) {
         performStrongDoubleTap(view.context)
     }
+
+    fun startRingingVibration(context: Context): Vibrator? {
+        return try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                vibratorManager.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+
+            if (vibrator.hasVibrator()) {
+                val timings = longArrayOf(0, 1000, 1000)
+                val amplitudes = intArrayOf(0, 255, 0)
+                val effect = VibrationEffect.createWaveform(timings, amplitudes, 0)
+                vibrator.vibrate(effect)
+                vibrator
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun stopRingingVibration(vibrator: Vibrator?) {
+        try {
+            vibrator?.cancel()
+        } catch (e: Exception) {}
+    }
 }

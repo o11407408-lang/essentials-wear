@@ -95,6 +95,18 @@ fun WatchCallOverlay(
         } else null
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(callData.state) {
+        if (callData.state == "RINGING") {
+            val vibrator = HapticUtil.startRingingVibration(context)
+            try {
+                kotlinx.coroutines.awaitCancellation()
+            } finally {
+                HapticUtil.stopRingingVibration(vibrator)
+            }
+        }
+    }
+
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
     LaunchedEffect(callData.state, callData.timestamp) {
         if (callData.state == "OFFHOOK") {
