@@ -32,6 +32,12 @@
   <img width="24%" alt="watch_media_2026-07-26_00_12_36" src="https://github.com/user-attachments/assets/4028d746-ba6c-4669-ac04-645d061a3a9b" />
 </p>
 
+
+
+https://github.com/user-attachments/assets/75cb7fa3-d988-49c3-b4d7-d6e889cdd386
+
+
+
 ## Requirements
 - [Essentials](https://github.com/sameerasw/essentials) Android app installed on Phone
 
