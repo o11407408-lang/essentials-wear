@@ -24,6 +24,7 @@ import android.os.BatteryManager
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
+import android.os.PowerManager
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import androidx.core.content.ContextCompat
@@ -83,6 +84,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private lateinit var textPaint: Paint
         private lateinit var datePaint: Paint
         private lateinit var sideValuePaint: Paint
+        private lateinit var circleOutlinePaint: Paint
         private lateinit var trackPaint: Paint
         private lateinit var progressPaint: Paint
         private var customTypeface: Typeface? = null
@@ -134,6 +136,12 @@ class EssentialsWatchFaceService : WallpaperService() {
                 textAlign = Paint.Align.CENTER
             }
 
+            circleOutlinePaint = Paint().apply {
+                color = getTrackColor()
+                style = Paint.Style.STROKE
+                isAntiAlias = true
+            }
+
             trackPaint = Paint().apply {
                 color = getTrackColor()
                 style = Paint.Style.STROKE
@@ -176,7 +184,9 @@ class EssentialsWatchFaceService : WallpaperService() {
             val color = getClockColor()
             textPaint.color = color
             progressPaint.color = color
-            trackPaint.color = getTrackColor()
+            val trackColor = getTrackColor()
+            trackPaint.color = trackColor
+            circleOutlinePaint.color = trackColor
         }
 
         override fun onDestroy() {
@@ -187,11 +197,23 @@ class EssentialsWatchFaceService : WallpaperService() {
             super.onDestroy()
         }
 
+        private fun checkInteractiveState(): Boolean {
+            return try {
+                val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                pm?.isInteractive ?: true
+            } catch (_: Exception) {
+                true
+            }
+        }
+
         override fun onVisibilityChanged(visible: Boolean) {
             super.onVisibilityChanged(visible)
             isVisibleState = visible
 
-            if (visible && !isAmbient) {
+            val interactive = checkInteractiveState()
+            isAmbient = !interactive
+
+            if (visible && interactive) {
                 currentSteps = getSavedDailySteps()
                 updateThemeColor()
                 registerReceiver()
@@ -203,6 +225,7 @@ class EssentialsWatchFaceService : WallpaperService() {
                 if (!visible) {
                     unregisterReceiver()
                 }
+                draw()
             }
 
             updateTimer()
@@ -216,8 +239,14 @@ class EssentialsWatchFaceService : WallpaperService() {
             extras: android.os.Bundle?,
             resultRequested: Boolean
         ): android.os.Bundle? {
-            if (action == "android.wallpaper.ambient" || action == "com.google.android.wearable.action.AMBIENT_UPDATE") {
-                val ambient = extras?.getBoolean("ambient_mode", false) ?: false
+            if (action == "android.wallpaper.ambient" ||
+                action == "com.google.android.wearable.action.AMBIENT_UPDATE" ||
+                action == "com.google.android.wearable.action.AMBIENT_MODE_CHANGED" ||
+                action == "com.google.android.wearable.watchface.action.AMBIENT_UPDATE"
+            ) {
+                val ambient = extras?.getBoolean("ambient_mode", false)
+                    ?: extras?.getBoolean("ambient", false)
+                    ?: !checkInteractiveState()
                 if (isAmbient != ambient) {
                     isAmbient = ambient
                     if (isAmbient) {
@@ -470,15 +499,20 @@ class EssentialsWatchFaceService : WallpaperService() {
                 sideValuePaint.textSize = height * 0.055f
                 val accentColor = getClockColor()
 
-                val leftSideCenterX = width * 0.16f
-                val sideIconY = centerY - (height * 0.025f)
-                val sideTextY = centerY + (height * 0.045f)
+                circleOutlinePaint.strokeWidth = height * 0.01f
+                val circleRadius = height * 0.09f
 
+                val leftSideCenterX = width * 0.16f
+                val sideIconY = centerY - (height * 0.045f)
+                val sideTextY = centerY + (height * 0.065f)
+
+                canvas.drawCircle(leftSideCenterX, centerY, circleRadius, circleOutlinePaint)
                 drawTintedDrawable(canvas, heartIconDrawable, leftSideCenterX, sideIconY, sideIconSize, accentColor)
                 val hrText = if (currentHeartRate > 0) currentHeartRate.toString() else "--"
                 canvas.drawText(hrText, leftSideCenterX, sideTextY, sideValuePaint)
 
                 val rightSideCenterX = width * 0.84f
+                canvas.drawCircle(rightSideCenterX, centerY, circleRadius, circleOutlinePaint)
                 drawTintedDrawable(canvas, stepsIconDrawable, rightSideCenterX, sideIconY, sideIconSize, accentColor)
                 val stepsText = currentSteps.toString()
                 canvas.drawText(stepsText, rightSideCenterX, sideTextY, sideValuePaint)
