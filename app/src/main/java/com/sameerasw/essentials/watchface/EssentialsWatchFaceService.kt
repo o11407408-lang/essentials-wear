@@ -53,12 +53,14 @@ class EssentialsWatchFaceService : WallpaperService() {
             try {
                 customTypeface = ResourcesCompat.getFont(this@EssentialsWatchFaceService, R.font.google_sans_flex)
             } catch (_: Exception) {
-                customTypeface = Typeface.DEFAULT_BOLD
+                customTypeface = Typeface.DEFAULT
             }
 
             textPaint = Paint().apply {
                 color = Color.WHITE
-                typeface = customTypeface ?: Typeface.DEFAULT_BOLD
+                typeface = customTypeface ?: Typeface.DEFAULT
+                // Variable font settings: 'ROND' 100 (rounded), 'wdth' 125 (wider), 'wght' 300 (thinner)
+                fontVariationSettings = "'ROND' 100.0, 'wdth' 150.0, 'wght' 100.0"
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
             }
@@ -104,7 +106,7 @@ class EssentialsWatchFaceService : WallpaperService() {
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
-            val textSize = height * 0.38f
+            val textSize = height * 0.28f
             textPaint.textSize = textSize
             draw()
         }
@@ -150,14 +152,14 @@ class EssentialsWatchFaceService : WallpaperService() {
             val centerY = height / 2f
 
             if (textPaint.textSize == 0f) {
-                textPaint.textSize = height * 0.38f
+                textPaint.textSize = height * 0.28f
             }
 
             val textBounds = Rect()
             textPaint.getTextBounds("88", 0, 2, textBounds)
             val textHeight = textBounds.height().toFloat()
 
-            val lineSpacing = 12f
+            val lineSpacing = 7f
             val hourY = centerY - lineSpacing
             val minuteY = centerY + textHeight + lineSpacing
 
