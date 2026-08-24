@@ -60,7 +60,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var sharedPrefs: SharedPreferences? = null
 
         private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "theme_primary_color" || key == "phone_battery_level" || key == "synced_calendar_events") {
+            if (key == "theme_primary_color" || key == "phone_battery_level" || key == "synced_calendar_events" || key?.startsWith("watchface_") == true) {
                 updateThemeColor()
                 draw()
             }
@@ -103,6 +103,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var mobileIconDrawable: Drawable? = null
         private var heartIconDrawable: Drawable? = null
         private var stepsIconDrawable: Drawable? = null
+        private var distanceIconDrawable: Drawable? = null
         private var calendarIconDrawable: Drawable? = null
         private var alarmIconDrawable: Drawable? = null
 
@@ -143,7 +144,7 @@ class EssentialsWatchFaceService : WallpaperService() {
             topEventPaint = Paint().apply {
                 color = Color.WHITE
                 typeface = customTypeface ?: Typeface.DEFAULT
-                fontVariationSettings = "'ROND' 100.0, 'wdth' 100.0, 'wght' 300.0"
+                fontVariationSettings = "'ROND' 100.0, 'wdth' 100.0, 'wght' 400.0"
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
             }
@@ -184,6 +185,7 @@ class EssentialsWatchFaceService : WallpaperService() {
             mobileIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_mobile_24)?.mutate()
             heartIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_favorite_24)?.mutate()
             stepsIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_steps_24)?.mutate()
+            distanceIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_distance_24)?.mutate()
             calendarIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_calendar_today_24)?.mutate()
             alarmIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_alarm_24)?.mutate()
 
@@ -453,9 +455,19 @@ class EssentialsWatchFaceService : WallpaperService() {
             val centerX = width / 2f
             val centerY = height / 2f
 
-            val topInfo = if (!isAmbient) getUpcomingMeetingOrAlarm() else null
+            val prefs = sharedPrefs
+            val hideBattery = prefs?.getBoolean("watchface_hide_battery", false) ?: false
+            val hideDeviceIcons = prefs?.getBoolean("watchface_hide_device_icons", false) ?: false
+            val showComplications = prefs?.getBoolean("watchface_show_complications", true) ?: true
+            val complicationOutline = prefs?.getBoolean("watchface_complication_outline", true) ?: true
+            val leftComplicationType = prefs?.getString("watchface_left_complication", "HEART_RATE") ?: "HEART_RATE"
+            val rightComplicationType = prefs?.getString("watchface_right_complication", "STEPS") ?: "STEPS"
+            val showUpcomingEvents = prefs?.getBoolean("watchface_show_upcoming_events", true) ?: true
+            val showGlow = prefs?.getBoolean("watchface_show_glow", true) ?: true
 
-            if (!isAmbient && topInfo != null && topInfo.remainingMinutes != null && topInfo.remainingMinutes <= 120L) {
+            val topInfo = if (!isAmbient && showUpcomingEvents) getUpcomingMeetingOrAlarm() else null
+
+            if (!isAmbient && showGlow && topInfo != null && topInfo.remainingMinutes != null && topInfo.remainingMinutes <= 120L) {
                 val mins = topInfo.remainingMinutes.coerceAtLeast(0L)
                 val proximityFactor = ((120L - mins).toFloat() / 105f).coerceIn(0f, 1f)
 
@@ -506,36 +518,41 @@ class EssentialsWatchFaceService : WallpaperService() {
                 val dialRect = RectF(dialPadding, dialPadding, width - dialPadding, height - dialPadding)
                 val radius = (width - 2f * dialPadding) / 2f
 
-                val iconSize = (height * 0.085f).toInt()
-                val iconInsetRadius = radius - (iconSize * 0.45f)
+                if (!hideBattery) {
+                    val arcSpan = if (hideDeviceIcons) 42f else 30f
+                    val leftStartAngle = if (hideDeviceIcons) 108f else 120f
+                    val rightStartAngle = if (hideDeviceIcons) 72f else 60f
 
-                val leftIconAngleRad = Math.toRadians(111.0)
-                val leftIconCenterX = centerX + iconInsetRadius * cos(leftIconAngleRad).toFloat()
-                val leftIconCenterY = centerY + iconInsetRadius * sin(leftIconAngleRad).toFloat()
-                drawTintedDrawable(canvas, watchIconDrawable, leftIconCenterX, leftIconCenterY, iconSize, Color.WHITE, 111f - 90f)
+                    if (!hideDeviceIcons) {
+                        val iconSize = (height * 0.085f).toInt()
+                        val iconInsetRadius = radius - (iconSize * 0.45f)
 
-                val rightIconAngleRad = Math.toRadians(69.0)
-                val rightIconCenterX = centerX + iconInsetRadius * cos(rightIconAngleRad).toFloat()
-                val rightIconCenterY = centerY + iconInsetRadius * sin(rightIconAngleRad).toFloat()
-                drawTintedDrawable(canvas, mobileIconDrawable, rightIconCenterX, rightIconCenterY, iconSize, Color.WHITE, 69f - 90f)
+                        val leftIconAngleRad = Math.toRadians(111.0)
+                        val leftIconCenterX = centerX + iconInsetRadius * cos(leftIconAngleRad).toFloat()
+                        val leftIconCenterY = centerY + iconInsetRadius * sin(leftIconAngleRad).toFloat()
+                        drawTintedDrawable(canvas, watchIconDrawable, leftIconCenterX, leftIconCenterY, iconSize, Color.WHITE, 111f - 90f)
 
-                val leftStartAngle = 120f
-                val arcSpan = 30f
-                val watchBattery = getWatchBatteryLevel()
-                val watchSweep = (watchBattery / 100f).coerceIn(0f, 1f) * arcSpan
+                        val rightIconAngleRad = Math.toRadians(69.0)
+                        val rightIconCenterX = centerX + iconInsetRadius * cos(rightIconAngleRad).toFloat()
+                        val rightIconCenterY = centerY + iconInsetRadius * sin(rightIconAngleRad).toFloat()
+                        drawTintedDrawable(canvas, mobileIconDrawable, rightIconCenterX, rightIconCenterY, iconSize, Color.WHITE, 69f - 90f)
+                    }
 
-                canvas.drawArc(dialRect, leftStartAngle, arcSpan, false, trackPaint)
-                if (watchSweep > 0f) {
-                    canvas.drawArc(dialRect, leftStartAngle, watchSweep, false, progressPaint)
-                }
+                    val watchBattery = getWatchBatteryLevel()
+                    val watchSweep = (watchBattery / 100f).coerceIn(0f, 1f) * arcSpan
 
-                val rightStartAngle = 60f
-                val phoneBattery = getPhoneBatteryLevel()
-                val phoneSweep = -((phoneBattery / 100f).coerceIn(0f, 1f) * arcSpan)
+                    canvas.drawArc(dialRect, leftStartAngle, arcSpan, false, trackPaint)
+                    if (watchSweep > 0f) {
+                        canvas.drawArc(dialRect, leftStartAngle, watchSweep, false, progressPaint)
+                    }
 
-                canvas.drawArc(dialRect, rightStartAngle, -arcSpan, false, trackPaint)
-                if (phoneBattery > 0) {
-                    canvas.drawArc(dialRect, rightStartAngle, phoneSweep, false, progressPaint)
+                    val phoneBattery = getPhoneBatteryLevel()
+                    val phoneSweep = -((phoneBattery / 100f).coerceIn(0f, 1f) * arcSpan)
+
+                    canvas.drawArc(dialRect, rightStartAngle, -arcSpan, false, trackPaint)
+                    if (phoneBattery > 0) {
+                        canvas.drawArc(dialRect, rightStartAngle, phoneSweep, false, progressPaint)
+                    }
                 }
 
                 // Draw Curved Date Text at bottom center
@@ -554,30 +571,53 @@ class EssentialsWatchFaceService : WallpaperService() {
                 }
                 canvas.drawTextOnPath(dateText, datePath, 0f, 0f, datePaint)
 
-                val sideIconSize = (height * 0.075f).toInt()
-                sideValuePaint.textSize = height * 0.055f
-                val accentColor = getClockColor()
+                // Side Complications
+                if (showComplications) {
+                    val sideIconSize = (height * 0.075f).toInt()
+                    sideValuePaint.textSize = height * 0.055f
+                    val accentColor = getClockColor()
 
-                circleOutlinePaint.strokeWidth = height * 0.01f
-                val circleRadius = height * 0.11f
+                    circleOutlinePaint.strokeWidth = height * 0.01f
+                    val circleRadius = height * 0.11f
+                    val sideIconY = centerY - (height * 0.045f)
+                    val sideTextY = centerY + (height * 0.065f)
 
-                val leftSideCenterX = width * 0.12f
-                val sideIconY = centerY - (height * 0.045f)
-                val sideTextY = centerY + (height * 0.065f)
+                    // Helper to draw a complication
+                    fun drawComplication(type: String, compCenterX: Float) {
+                        if (type == "NONE") return
+                        if (complicationOutline) {
+                            canvas.drawCircle(compCenterX, centerY, circleRadius, circleOutlinePaint)
+                        }
+                        when (type) {
+                            "HEART_RATE" -> {
+                                drawTintedDrawable(canvas, heartIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                val hrText = if (currentHeartRate > 0) currentHeartRate.toString() else "--"
+                                canvas.drawText(hrText, compCenterX, sideTextY, sideValuePaint)
+                            }
+                            "STEPS" -> {
+                                drawTintedDrawable(canvas, stepsIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                val stepsText = currentSteps.toString()
+                                canvas.drawText(stepsText, compCenterX, sideTextY, sideValuePaint)
+                            }
+                            "DISTANCE" -> {
+                                drawTintedDrawable(canvas, distanceIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                val km = (currentSteps * 0.000762f)
+                                val distText = if (km >= 10f) String.format(Locale.getDefault(), "%.0fkm", km) else String.format(Locale.getDefault(), "%.1fkm", km)
+                                canvas.drawText(distText, compCenterX, sideTextY, sideValuePaint)
+                            }
+                        }
+                    }
 
-                canvas.drawCircle(leftSideCenterX, centerY, circleRadius, circleOutlinePaint)
-                drawTintedDrawable(canvas, heartIconDrawable, leftSideCenterX, sideIconY, sideIconSize, accentColor)
-                val hrText = if (currentHeartRate > 0) currentHeartRate.toString() else "--"
-                canvas.drawText(hrText, leftSideCenterX, sideTextY, sideValuePaint)
+                    val leftSideCenterX = width * 0.12f
+                    drawComplication(leftComplicationType, leftSideCenterX)
 
-                val rightSideCenterX = width * 0.88f
-                canvas.drawCircle(rightSideCenterX, centerY, circleRadius, circleOutlinePaint)
-                drawTintedDrawable(canvas, stepsIconDrawable, rightSideCenterX, sideIconY, sideIconSize, accentColor)
-                val stepsText = currentSteps.toString()
-                canvas.drawText(stepsText, rightSideCenterX, sideTextY, sideValuePaint)
+                    val rightSideCenterX = width * 0.88f
+                    drawComplication(rightComplicationType, rightSideCenterX)
+                }
 
                 // Draw Top Curved Text: Next upcoming meeting for today or next alarm
                 if (topInfo != null) {
+                    val accentColor = getClockColor()
                     topEventPaint.textSize = height * 0.065f
                     val topRadius = height * 0.43f
                     val topPathRect = RectF(

@@ -95,6 +95,15 @@ class CalendarDataListenerService : WearableListenerService() {
                     syncWatchRingerMode(ringerMode)
                 }
 
+                val watchfaceHideBattery = dataMap.getBoolean("watchface_hide_battery", false)
+                val watchfaceHideDeviceIcons = dataMap.getBoolean("watchface_hide_device_icons", false)
+                val watchfaceShowComplications = dataMap.getBoolean("watchface_show_complications", true)
+                val watchfaceComplicationOutline = dataMap.getBoolean("watchface_complication_outline", true)
+                val watchfaceLeftComplication = dataMap.getString("watchface_left_complication", "HEART_RATE")
+                val watchfaceRightComplication = dataMap.getString("watchface_right_complication", "STEPS")
+                val watchfaceShowUpcomingEvents = dataMap.getBoolean("watchface_show_upcoming_events", true)
+                val watchfaceShowGlow = dataMap.getBoolean("watchface_show_glow", true)
+
                 saveDeviceInfo(
                     batteryLevel, 
                     isCharging, 
@@ -115,7 +124,15 @@ class CalendarDataListenerService : WearableListenerService() {
                     aodState,
                     watchControlsLayout,
                     tapToWakeEnabled,
-                    watchSyncSoundModeEnabled
+                    watchSyncSoundModeEnabled,
+                    watchfaceHideBattery,
+                    watchfaceHideDeviceIcons,
+                    watchfaceShowComplications,
+                    watchfaceComplicationOutline,
+                    watchfaceLeftComplication,
+                    watchfaceRightComplication,
+                    watchfaceShowUpcomingEvents,
+                    watchfaceShowGlow
                 )
                 Log.d(TAG, "Saved device info: Level=$batteryLevel, Charging=$isCharging, TravelActive=$travelActive, TravelName=$travelName")
 
@@ -155,7 +172,15 @@ class CalendarDataListenerService : WearableListenerService() {
         aodState: Int,
         watchControlsLayout: String,
         tapToWakeEnabled: Boolean,
-        watchSyncSoundModeEnabled: Boolean
+        watchSyncSoundModeEnabled: Boolean,
+        watchfaceHideBattery: Boolean = false,
+        watchfaceHideDeviceIcons: Boolean = false,
+        watchfaceShowComplications: Boolean = true,
+        watchfaceComplicationOutline: Boolean = true,
+        watchfaceLeftComplication: String = "HEART_RATE",
+        watchfaceRightComplication: String = "STEPS",
+        watchfaceShowUpcomingEvents: Boolean = true,
+        watchfaceShowGlow: Boolean = true
     ) {
         val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
         prefs.edit()
@@ -179,6 +204,14 @@ class CalendarDataListenerService : WearableListenerService() {
             .putString("phone_watch_controls_layout", watchControlsLayout)
             .putBoolean("phone_tap_to_wake_enabled", tapToWakeEnabled)
             .putBoolean("phone_watch_sync_sound_mode_enabled", watchSyncSoundModeEnabled)
+            .putBoolean("watchface_hide_battery", watchfaceHideBattery)
+            .putBoolean("watchface_hide_device_icons", watchfaceHideDeviceIcons)
+            .putBoolean("watchface_show_complications", watchfaceShowComplications)
+            .putBoolean("watchface_complication_outline", watchfaceComplicationOutline)
+            .putString("watchface_left_complication", watchfaceLeftComplication)
+            .putString("watchface_right_complication", watchfaceRightComplication)
+            .putBoolean("watchface_show_upcoming_events", watchfaceShowUpcomingEvents)
+            .putBoolean("watchface_show_glow", watchfaceShowGlow)
             .putLong("phone_battery_timestamp", System.currentTimeMillis())
             .apply()
     }
