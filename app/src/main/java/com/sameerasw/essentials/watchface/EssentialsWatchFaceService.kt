@@ -248,12 +248,12 @@ class EssentialsWatchFaceService : WallpaperService() {
             val leftIconAngleRad = Math.toRadians(111.0)
             val leftIconCenterX = centerX + iconInsetRadius * cos(leftIconAngleRad).toFloat()
             val leftIconCenterY = centerY + iconInsetRadius * sin(leftIconAngleRad).toFloat()
-            drawTintedDrawable(canvas, watchIconDrawable, leftIconCenterX, leftIconCenterY, iconSize, getClockColor())
+            drawTintedDrawable(canvas, watchIconDrawable, leftIconCenterX, leftIconCenterY, iconSize, Color.WHITE, 111f - 90f)
 
             val rightIconAngleRad = Math.toRadians(69.0)
             val rightIconCenterX = centerX + iconInsetRadius * cos(rightIconAngleRad).toFloat()
             val rightIconCenterY = centerY + iconInsetRadius * sin(rightIconAngleRad).toFloat()
-            drawTintedDrawable(canvas, mobileIconDrawable, rightIconCenterX, rightIconCenterY, iconSize, getClockColor())
+            drawTintedDrawable(canvas, mobileIconDrawable, rightIconCenterX, rightIconCenterY, iconSize, Color.WHITE, 69f - 90f)
 
             val leftStartAngle = 120f
             val arcSpan = 30f
@@ -288,7 +288,8 @@ class EssentialsWatchFaceService : WallpaperService() {
 
             // Draw Curved Date Text at bottom center
             val dateText = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(calendar.time)
-            datePaint.textSize = height * 0.075f
+            datePaint.color = Color.WHITE
+            datePaint.textSize = height * 0.070f
             val dateRadius = height * 0.37f
             val datePathRect = RectF(
                 centerX - dateRadius,
@@ -308,18 +309,20 @@ class EssentialsWatchFaceService : WallpaperService() {
             cx: Float,
             cy: Float,
             size: Int,
-            color: Int
+            color: Int,
+            rotationDegrees: Float = 0f
         ) {
             drawable ?: return
             drawable.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
             val half = size / 2
-            drawable.setBounds(
-                (cx - half).toInt(),
-                (cy - half).toInt(),
-                (cx + half).toInt(),
-                (cy + half).toInt()
-            )
+            drawable.setBounds(-half, -half, half, half)
+            canvas.save()
+            canvas.translate(cx, cy)
+            if (rotationDegrees != 0f) {
+                canvas.rotate(rotationDegrees)
+            }
             drawable.draw(canvas)
+            canvas.restore()
         }
 
         private fun getWatchBatteryLevel(): Int {
