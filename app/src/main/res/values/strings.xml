@@ -14,6 +14,7 @@
     <string name="coming_soon">Coming Soon</string>
     <string name="phone_battery">Phone Battery</string>
     <string name="dual_battery_complication_label">Dual Battery Status</string>
+    <string name="time_day_complication_label">Time &amp; Day</string>
     <string name="battery_level">%1$d%%</string>
     <string name="battery_charging">Charging</string>
     <string name="your_android_title">Your Android</string>
