@@ -23,13 +23,20 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.BatteryManager
+import android.graphics.RectF
+
 class EssentialsWatchFaceService : WallpaperService() {
 
     override fun onCreateEngine(): Engine {
         return EssentialsEngine()
     }
 
-    inner class EssentialsEngine : WallpaperService.Engine() {
+    inner class EssentialsEngine : WallpaperService.Engine(), SensorEventListener {
 
         private val updateTimeHandler = EngineHandler(this)
         private var timeZoneReceiverRegistered = false
@@ -53,7 +60,15 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var isVisibleState = false
         private lateinit var calendar: Calendar
         private lateinit var textPaint: Paint
+        private lateinit var trackPaint: Paint
+        private lateinit var progressPaint: Paint
         private var customTypeface: Typeface? = null
+
+        private var sensorManager: SensorManager? = null
+        private var stepSensor: Sensor? = null
+        private var initialSteps = -1
+        private var currentSteps = 0
+        private val dailyStepGoal = 10000
 
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
@@ -75,8 +90,26 @@ class EssentialsWatchFaceService : WallpaperService() {
                 textAlign = Paint.Align.CENTER
             }
 
+            trackPaint = Paint().apply {
+                color = getTrackColor()
+                style = Paint.Style.STROKE
+                strokeCap = Paint.Cap.ROUND
+                isAntiAlias = true
+            }
+
+            progressPaint = Paint().apply {
+                color = getClockColor()
+                style = Paint.Style.STROKE
+                strokeCap = Paint.Cap.ROUND
+                isAntiAlias = true
+            }
+
             sharedPrefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
             sharedPrefs?.registerOnSharedPreferenceChangeListener(prefListener)
+
+            sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            stepSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+                ?: sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
         }
 
         private fun getClockColor(): Int {
@@ -84,13 +117,22 @@ class EssentialsWatchFaceService : WallpaperService() {
             return themeColor?.let { ThemeUtil.getLightAccentColor(it) } ?: 0xFFB39DDB.toInt()
         }
 
+        private fun getTrackColor(): Int {
+            val themeColor = ThemeUtil.getThemeColor(this@EssentialsWatchFaceService) ?: 0xFF6750A4.toInt()
+            return ThemeUtil.getTonedColor(themeColor)
+        }
+
         private fun updateThemeColor() {
-            textPaint.color = getClockColor()
+            val color = getClockColor()
+            textPaint.color = color
+            progressPaint.color = color
+            trackPaint.color = getTrackColor()
         }
 
         override fun onDestroy() {
             updateTimeHandler.removeMessages(MSG_UPDATE_TIME)
             unregisterReceiver()
+            unregisterStepSensor()
             sharedPrefs?.unregisterOnSharedPreferenceChangeListener(prefListener)
             super.onDestroy()
         }
@@ -100,12 +142,15 @@ class EssentialsWatchFaceService : WallpaperService() {
             isVisibleState = visible
 
             if (visible) {
+                currentSteps = getSavedDailySteps()
                 updateThemeColor()
                 registerReceiver()
+                registerStepSensor()
                 calendar.timeZone = TimeZone.getDefault()
                 draw()
             } else {
                 unregisterReceiver()
+                unregisterStepSensor()
             }
 
             updateTimer()
@@ -116,6 +161,7 @@ class EssentialsWatchFaceService : WallpaperService() {
             timeZoneReceiverRegistered = true
             val filter = IntentFilter(Intent.ACTION_TIMEZONE_CHANGED).apply {
                 addAction(Intent.ACTION_TIME_TICK)
+                addAction(Intent.ACTION_BATTERY_CHANGED)
             }
             this@EssentialsWatchFaceService.registerReceiver(timeZoneReceiver, filter)
         }
@@ -128,10 +174,79 @@ class EssentialsWatchFaceService : WallpaperService() {
             } catch (_: Exception) { }
         }
 
+        private fun registerStepSensor() {
+            stepSensor?.let {
+                sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+            }
+        }
+
+        private fun unregisterStepSensor() {
+            sensorManager?.unregisterListener(this)
+        }
+
+        private var stepCountPrefs: SharedPreferences? = null
+
+        private fun getStepPrefs(): SharedPreferences {
+            return stepCountPrefs ?: getSharedPreferences("watchface_steps_prefs", Context.MODE_PRIVATE).also {
+                stepCountPrefs = it
+            }
+        }
+
+        private fun getSavedDailySteps(): Int {
+            val prefs = getStepPrefs()
+            val savedDay = prefs.getInt("step_day_of_year", -1)
+            val currentDay = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
+            if (savedDay != currentDay) {
+                return 0
+            }
+            return prefs.getInt("daily_step_count", 0)
+        }
+
+        override fun onSensorChanged(event: SensorEvent?) {
+            val sensor = event?.sensor ?: return
+            val prefs = getStepPrefs()
+            val currentDay = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
+            val savedDay = prefs.getInt("step_day_of_year", -1)
+
+            if (sensor.type == Sensor.TYPE_STEP_COUNTER && event.values.isNotEmpty()) {
+                val sensorSteps = event.values[0].toInt()
+                var baseline = prefs.getInt("step_baseline", -1)
+                if (savedDay != currentDay || baseline < 0 || sensorSteps < baseline) {
+                    baseline = sensorSteps
+                    prefs.edit()
+                        .putInt("step_day_of_year", currentDay)
+                        .putInt("step_baseline", baseline)
+                        .putInt("daily_step_count", 0)
+                        .apply()
+                }
+                val calculated = (sensorSteps - baseline).coerceAtLeast(0)
+                currentSteps = calculated
+                prefs.edit().putInt("daily_step_count", currentSteps).apply()
+                draw()
+            } else if (sensor.type == Sensor.TYPE_STEP_DETECTOR) {
+                if (savedDay != currentDay) {
+                    currentSteps = 0
+                    prefs.edit()
+                        .putInt("step_day_of_year", currentDay)
+                        .putInt("daily_step_count", 0)
+                        .apply()
+                }
+                currentSteps++
+                prefs.edit().putInt("daily_step_count", currentSteps).apply()
+                draw()
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
+            currentSteps = getSavedDailySteps()
             val textSize = height * 0.28f
             textPaint.textSize = textSize
+            val strokeW = height * 0.015f
+            trackPaint.strokeWidth = strokeW
+            progressPaint.strokeWidth = strokeW
             draw()
         }
 
@@ -179,6 +294,38 @@ class EssentialsWatchFaceService : WallpaperService() {
                 textPaint.textSize = height * 0.28f
             }
 
+            // Draw Edge Dials
+            val strokeW = height * 0.015f
+            trackPaint.strokeWidth = strokeW
+            progressPaint.strokeWidth = strokeW
+
+            val dialPadding = strokeW * 1.5f
+            val dialRect = RectF(dialPadding, dialPadding, width - dialPadding, height - dialPadding)
+            val arcSpan = 70f // Span angle in degrees for each half dial
+
+            // 1. Left Dial: Battery Level (Sweep centered on Left: 180° - 35° to 180° + 35°)
+            val leftStartAngle = 180f - (arcSpan / 2f)
+            val batteryLevel = getWatchBatteryLevel()
+            val batterySweep = (batteryLevel / 100f).coerceIn(0f, 1f) * arcSpan
+
+            // Draw Left Track & Progress
+            canvas.drawArc(dialRect, leftStartAngle, arcSpan, false, trackPaint)
+            if (batterySweep > 0f) {
+                canvas.drawArc(dialRect, leftStartAngle, batterySweep, false, progressPaint)
+            }
+
+            // 2. Right Dial: Steps Count (Sweep centered on Right: 0° - 35° to 0° + 35°)
+            val rightStartAngle = 0f - (arcSpan / 2f)
+            val stepFraction = (currentSteps.toFloat() / dailyStepGoal.toFloat()).coerceIn(0f, 1f)
+            val stepsSweep = stepFraction * arcSpan
+
+            // Draw Right Track & Progress
+            canvas.drawArc(dialRect, rightStartAngle, arcSpan, false, trackPaint)
+            if (stepsSweep > 0f) {
+                canvas.drawArc(dialRect, rightStartAngle, stepsSweep, false, progressPaint)
+            }
+
+            // Draw Centered Clock Text
             val textBounds = Rect()
             textPaint.getTextBounds("88", 0, 2, textBounds)
             val textHeight = textBounds.height().toFloat()
@@ -189,6 +336,15 @@ class EssentialsWatchFaceService : WallpaperService() {
 
             canvas.drawText(hourText, centerX, hourY, textPaint)
             canvas.drawText(minuteText, centerX, minuteY, textPaint)
+        }
+
+        private fun getWatchBatteryLevel(): Int {
+            return try {
+                val bm = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 100
+            } catch (_: Exception) {
+                100
+            }
         }
 
         private fun updateTimer() {
