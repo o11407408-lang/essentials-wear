@@ -46,10 +46,20 @@ import kotlin.math.sin
 
 class EssentialsWatchFaceService : WallpaperService() {
 
+    private enum class GlanceType {
+        BATTERY_ALERT,
+        TRAVEL,
+        EVENT,
+        ALARM
+    }
+
     private data class TopScheduleInfo(
+        val type: GlanceType,
         val text: String,
-        val isMeeting: Boolean,
-        val remainingMinutes: Long? = null
+        val iconDrawable: Drawable?,
+        val remainingMinutes: Long? = null,
+        val glowMaxMinutes: Long = 120L,
+        val glowPeakMinutes: Long = 15L
     )
 
     override fun onCreateEngine(): Engine {
@@ -117,6 +127,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var muteIconDrawable: Drawable? = null
         private var calendarIconDrawable: Drawable? = null
         private var alarmIconDrawable: Drawable? = null
+        private var batteryAlertIconDrawable: Drawable? = null
 
         private var sensorManager: SensorManager? = null
         private var heartRateSensor: Sensor? = null
@@ -124,6 +135,8 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var currentHeartRate: Int = 0
         private var currentSteps: Int = 0
         private var lastHeartRateUpdateMs: Long = 0L
+        private var surfaceWidth: Float = 454f
+        private var surfaceHeight: Float = 454f
 
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
@@ -207,6 +220,7 @@ class EssentialsWatchFaceService : WallpaperService() {
             muteIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_volume_off_24)?.mutate()
             calendarIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_calendar_today_24)?.mutate()
             alarmIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_alarm_24)?.mutate()
+            batteryAlertIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_battery_alert_24)?.mutate()
 
             sharedPrefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
             sharedPrefs?.registerOnSharedPreferenceChangeListener(prefListener)
@@ -455,21 +469,21 @@ class EssentialsWatchFaceService : WallpaperService() {
                 val touchY = event.y
 
                 val prefs = sharedPrefs
-                val width = 454f
-                val height = 454f
+                val width = if (surfaceWidth > 0f) surfaceWidth else 454f
+                val height = if (surfaceHeight > 0f) surfaceHeight else 454f
                 val centerX = width / 2f
                 val centerY = height / 2f
 
-                // 1. Check Top Info (At a Glance meeting / next alarm) Tap
-                val showUpcomingEvents = prefs?.getBoolean("watchface_show_upcoming_events", true) ?: true
-                if (showUpcomingEvents && touchY < centerY - (height * 0.22f)) {
+                // 1. Check Top Info (At a Glance meeting / travel / battery alert / next alarm) Tap
+                val showUpcomingEvents = prefs?.getBoolean("watchface_show_glance", prefs?.getBoolean("watchface_show_upcoming_events", true) ?: true) ?: true
+                if (showUpcomingEvents && touchY < centerY - (height * 0.15f)) {
                     val topInfo = getUpcomingMeetingOrAlarm()
                     if (topInfo != null) {
                         HapticUtil.performClick(this@EssentialsWatchFaceService)
-                        if (topInfo.isMeeting) {
-                            openScheduleScreen()
-                        } else {
-                            openAlarmApp()
+                        when (topInfo.type) {
+                            GlanceType.EVENT -> openScheduleScreen()
+                            GlanceType.ALARM -> openAlarmApp()
+                            GlanceType.TRAVEL, GlanceType.BATTERY_ALERT -> openYourAndroidScreen()
                         }
                         return
                     }
@@ -478,7 +492,7 @@ class EssentialsWatchFaceService : WallpaperService() {
                 // 2. Check Side Complications Tap
                 val showComplications = prefs?.getBoolean("watchface_show_complications", true) ?: true
                 if (showComplications) {
-                    val circleRadius = height * 0.14f // touch target radius
+                    val circleRadius = height * 0.15f // generous touch target radius
 
                     val leftCenterX = width * 0.12f
                     val rightCenterX = width * 0.88f
@@ -617,6 +631,8 @@ class EssentialsWatchFaceService : WallpaperService() {
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
+            surfaceWidth = width.toFloat()
+            surfaceHeight = height.toFloat()
             currentSteps = getSavedDailySteps()
             val textSize = height * 0.25f
             textPaint.textSize = textSize
@@ -673,14 +689,20 @@ class EssentialsWatchFaceService : WallpaperService() {
             val complicationOutline = prefs?.getBoolean("watchface_complication_outline", true) ?: true
             val leftComplicationType = prefs?.getString("watchface_left_complication", "HEART_RATE") ?: "HEART_RATE"
             val rightComplicationType = prefs?.getString("watchface_right_complication", "STEPS") ?: "STEPS"
-            val showUpcomingEvents = prefs?.getBoolean("watchface_show_upcoming_events", true) ?: true
+            val showUpcomingEvents = prefs?.getBoolean("watchface_show_glance", prefs?.getBoolean("watchface_show_upcoming_events", true) ?: true) ?: true
             val showGlow = prefs?.getBoolean("watchface_show_glow", true) ?: true
 
             val topInfo = if (!isAmbient && showUpcomingEvents) getUpcomingMeetingOrAlarm() else null
 
-            if (!isAmbient && showGlow && topInfo != null && topInfo.remainingMinutes != null && topInfo.remainingMinutes <= 120L) {
+            if (!isAmbient && showGlow && topInfo != null && topInfo.remainingMinutes != null && topInfo.remainingMinutes <= topInfo.glowMaxMinutes) {
                 val mins = topInfo.remainingMinutes.coerceAtLeast(0L)
-                val proximityFactor = ((120L - mins).toFloat() / 105f).coerceIn(0f, 1f)
+                val peak = topInfo.glowPeakMinutes
+                val maxM = topInfo.glowMaxMinutes
+                val proximityFactor = if (maxM > peak) {
+                    ((maxM - mins).toFloat() / (maxM - peak).toFloat()).coerceIn(0f, 1f)
+                } else {
+                    1f
+                }
 
                 if (proximityFactor > 0f) {
                     val accent = getClockColor()
@@ -909,7 +931,7 @@ class EssentialsWatchFaceService : WallpaperService() {
                     drawComplication(rightComplicationType, rightSideCenterX)
                 }
 
-                // Draw Top Curved Text: Next upcoming meeting for today or next alarm
+                // Draw Top Curved Text: Next upcoming meeting for today, travel ETA, battery alert, or next alarm
                 if (topInfo != null) {
                     val accentColor = getClockColor()
                     topEventPaint.textSize = height * 0.065f
@@ -925,7 +947,7 @@ class EssentialsWatchFaceService : WallpaperService() {
                     }
                     canvas.drawTextOnPath(topInfo.text, topPath, 0f, 0f, topEventPaint)
 
-                    val topIcon = if (topInfo.isMeeting) calendarIconDrawable else alarmIconDrawable
+                    val topIcon = topInfo.iconDrawable ?: calendarIconDrawable
                     val topIconSize = (height * 0.065f).toInt()
                     val topIconY = centerY - (height * 0.35f)
                     drawTintedDrawable(canvas, topIcon, centerX, topIconY, topIconSize, accentColor)
@@ -947,78 +969,201 @@ class EssentialsWatchFaceService : WallpaperService() {
 
         private fun getUpcomingMeetingOrAlarm(): TopScheduleInfo? {
             val now = System.currentTimeMillis()
-            val cal = Calendar.getInstance().apply { timeInMillis = now }
-            cal.set(Calendar.HOUR_OF_DAY, 23)
-            cal.set(Calendar.MINUTE, 59)
-            cal.set(Calendar.SECOND, 59)
-            cal.set(Calendar.MILLISECOND, 999)
-            val endOfToday = cal.timeInMillis
-
             val prefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
-            val json = prefs.getString("synced_calendar_events", null)
 
-            if (!json.isNullOrBlank()) {
-                try {
-                    val array = org.json.JSONArray(json)
-                    var earliestEventTitle: String? = null
-                    var earliestBegin = Long.MAX_VALUE
+            // Individual At a Glance complication toggles
+            val showBatteryAlerts = prefs.getBoolean("watchface_glance_battery_alerts", true)
+            val showTravel = prefs.getBoolean("watchface_glance_travel", true)
+            val showEvents = prefs.getBoolean("watchface_glance_events", true)
+            val showAlarm = prefs.getBoolean("watchface_glance_alarm", true)
 
-                    for (i in 0 until array.length()) {
-                        val obj = array.getJSONObject(i)
-                        val begin = obj.optLong("begin", 0L)
-                        val end = obj.optLong("end", 0L)
-                        val title = obj.optString("title", "")
-                        val allDay = obj.optBoolean("allDay", false)
+            // 1. Check for upcoming calendar event starting within 30 minutes
+            var earlyUpcomingMeeting: TopScheduleInfo? = null
+            if (showEvents) {
+                val json = prefs.getString("synced_calendar_events", null)
+                if (!json.isNullOrBlank()) {
+                    try {
+                        val cal = Calendar.getInstance().apply { timeInMillis = now }
+                        cal.set(Calendar.HOUR_OF_DAY, 23)
+                        cal.set(Calendar.MINUTE, 59)
+                        cal.set(Calendar.SECOND, 59)
+                        cal.set(Calendar.MILLISECOND, 999)
+                        val endOfToday = cal.timeInMillis
 
-                        if (!allDay && begin > now && begin <= endOfToday && begin < earliestBegin) {
-                            earliestBegin = begin
-                            earliestEventTitle = title
-                        } else if (!allDay && now in begin..end && begin < earliestBegin) {
-                            earliestBegin = begin
-                            earliestEventTitle = title
-                        }
-                    }
+                        val array = org.json.JSONArray(json)
+                        var earliestEventTitle: String? = null
+                        var earliestBegin = Long.MAX_VALUE
 
-                    if (earliestEventTitle != null) {
-                        val diffMs = earliestBegin - now
-                        val diffMinutes = if (diffMs <= 0) 0L else (diffMs / 60000L).coerceAtLeast(1L)
-                        val timeStr = if (diffMs <= 0) {
-                            "Now"
-                        } else {
-                            if (diffMinutes < 60) {
-                                "in ${diffMinutes}m"
-                            } else {
-                                val hours = diffMinutes / 60
-                                val remainingMin = diffMinutes % 60
-                                if (remainingMin > 0) "in ${hours}h ${remainingMin}m" else "in ${hours}h"
+                        for (i in 0 until array.length()) {
+                            val obj = array.getJSONObject(i)
+                            val begin = obj.optLong("begin", 0L)
+                            val end = obj.optLong("end", 0L)
+                            val title = obj.optString("title", "")
+                            val allDay = obj.optBoolean("allDay", false)
+
+                            if (!allDay && begin > now && begin <= endOfToday && begin < earliestBegin) {
+                                earliestBegin = begin
+                                earliestEventTitle = title
+                            } else if (!allDay && now in begin..end && begin < earliestBegin) {
+                                earliestBegin = begin
+                                earliestEventTitle = title
                             }
                         }
-                        val cleanTitle = if (earliestEventTitle.length > 20) earliestEventTitle.take(19) + "…" else earliestEventTitle
-                        return TopScheduleInfo("$cleanTitle $timeStr", true, diffMinutes)
+
+                        if (earliestEventTitle != null) {
+                            val diffMs = earliestBegin - now
+                            val diffMinutes = if (diffMs <= 0) 0L else (diffMs / 60000L).coerceAtLeast(1L)
+                            val timeStr = if (diffMs <= 0) {
+                                "Now"
+                            } else {
+                                if (diffMinutes < 60) {
+                                    "in ${diffMinutes}m"
+                                } else {
+                                    val hours = diffMinutes / 60
+                                    val remainingMin = diffMinutes % 60
+                                    if (remainingMin > 0) "in ${hours}h ${remainingMin}m" else "in ${hours}h"
+                                }
+                            }
+                            val cleanTitle = if (earliestEventTitle.length > 20) earliestEventTitle.take(19) + "…" else earliestEventTitle
+                            earlyUpcomingMeeting = TopScheduleInfo(
+                                GlanceType.EVENT,
+                                "$cleanTitle $timeStr",
+                                calendarIconDrawable,
+                                diffMinutes,
+                                glowMaxMinutes = 120L,
+                                glowPeakMinutes = 15L
+                            )
+                        }
+                    } catch (_: Exception) { }
+                }
+            }
+
+            // If an event has not started and is within 30 minutes, it overrides low battery alert
+            if (earlyUpcomingMeeting != null && earlyUpcomingMeeting.remainingMinutes != null && earlyUpcomingMeeting.remainingMinutes in 1..30) {
+                return earlyUpcomingMeeting
+            }
+
+            // 2. Low Battery Alert (Watch < 20% or Phone < 20%)
+            if (showBatteryAlerts) {
+                val watchBat = getWatchBatteryLevel()
+                val phoneBat = getPhoneBatteryLevel()
+                val isPhoneCharging = prefs.getBoolean("phone_is_charging", false)
+                val isWatchCharging = try {
+                    val bm = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                    val status = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS) ?: -1
+                    status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+                } catch (_: Exception) { false }
+
+                val watchLow = watchBat in 1..19 && !isWatchCharging
+                val phoneLow = phoneBat in 1..19 && !isPhoneCharging
+
+                if (watchLow && phoneLow) {
+                    return TopScheduleInfo(
+                        GlanceType.BATTERY_ALERT,
+                        "Watch & phone battery low",
+                        batteryAlertIconDrawable,
+                        remainingMinutes = 0L,
+                        glowMaxMinutes = 60L,
+                        glowPeakMinutes = 0L
+                    )
+                } else if (watchLow) {
+                    return TopScheduleInfo(
+                        GlanceType.BATTERY_ALERT,
+                        "Watch battery low",
+                        batteryAlertIconDrawable,
+                        remainingMinutes = 0L,
+                        glowMaxMinutes = 60L,
+                        glowPeakMinutes = 0L
+                    )
+                } else if (phoneLow) {
+                    return TopScheduleInfo(
+                        GlanceType.BATTERY_ALERT,
+                        "Phone battery low",
+                        batteryAlertIconDrawable,
+                        remainingMinutes = 0L,
+                        glowMaxMinutes = 60L,
+                        glowPeakMinutes = 0L
+                    )
+                }
+            }
+
+            // 3. Are We There (Travel ETA)
+            if (showTravel) {
+                val travelActive = prefs.getBoolean("phone_travel_active", false)
+                val syncLocationReachedEnabled = prefs.getBoolean("phone_watch_sync_location_reached_enabled", true)
+                if (travelActive && syncLocationReachedEnabled) {
+                    val travelName = prefs.getString("phone_travel_name", "") ?: ""
+                    val travelRemainingTime = prefs.getString("phone_travel_remaining_time", "") ?: ""
+                    val travelRemainingDistance = prefs.getString("phone_travel_remaining_distance", "") ?: ""
+
+                    // Extract remaining minutes if available
+                    var travelMinutes: Long? = null
+                    if (travelRemainingTime.isNotBlank()) {
+                        try {
+                            val timePart = travelRemainingTime.lowercase().trim()
+                            if (timePart.contains("h")) {
+                                val parts = timePart.split("h")
+                                val h = parts[0].filter { it.isDigit() }.toLongOrNull() ?: 0L
+                                val m = parts.getOrNull(1)?.filter { it.isDigit() }?.toLongOrNull() ?: 0L
+                                travelMinutes = (h * 60L) + m
+                            } else if (timePart.contains("m")) {
+                                travelMinutes = timePart.filter { it.isDigit() }.toLongOrNull()
+                            }
+                        } catch (_: Exception) { }
+                    }
+
+                    val etaPrefix = when {
+                        travelRemainingTime.isNotBlank() -> travelRemainingTime
+                        travelRemainingDistance.isNotBlank() -> travelRemainingDistance
+                        else -> "ETA"
+                    }
+                    val travelText = if (travelName.isNotBlank()) "$etaPrefix till $travelName" else etaPrefix
+
+                    return TopScheduleInfo(
+                        GlanceType.TRAVEL,
+                        travelText,
+                        distanceIconDrawable,
+                        remainingMinutes = travelMinutes ?: 30L,
+                        glowMaxMinutes = 60L,
+                        glowPeakMinutes = 20L
+                    )
+                }
+            }
+
+            // 4. Regular Calendar Event (if not returned earlier)
+            if (earlyUpcomingMeeting != null) {
+                return earlyUpcomingMeeting
+            }
+
+            // 5. Next Alarm
+            if (showAlarm) {
+                try {
+                    val am = getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager
+                    val nextAlarm = am?.nextAlarmClock
+                    if (nextAlarm != null && nextAlarm.triggerTime > now) {
+                        val alarmCal = Calendar.getInstance().apply { timeInMillis = nextAlarm.triggerTime }
+                        val diffMs = nextAlarm.triggerTime - now
+                        val diffMinutes = (diffMs / 60000L).coerceAtLeast(1L)
+                        val is24 = android.text.format.DateFormat.is24HourFormat(this@EssentialsWatchFaceService)
+                        val timeStr = if (is24) {
+                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(alarmCal.time)
+                        } else {
+                            val h = alarmCal.get(Calendar.HOUR).let { if (it == 0) 12 else it }
+                            val m = alarmCal.get(Calendar.MINUTE)
+                            val amPm = if (alarmCal.get(Calendar.AM_PM) == Calendar.AM) "AM" else "PM"
+                            String.format(Locale.getDefault(), "%d:%02d %s", h, m, amPm)
+                        }
+                        return TopScheduleInfo(
+                            GlanceType.ALARM,
+                            timeStr,
+                            alarmIconDrawable,
+                            diffMinutes,
+                            glowMaxMinutes = 120L,
+                            glowPeakMinutes = 15L
+                        )
                     }
                 } catch (_: Exception) { }
             }
-
-            // Fallback: Next Alarm
-            try {
-                val am = getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager
-                val nextAlarm = am?.nextAlarmClock
-                if (nextAlarm != null && nextAlarm.triggerTime > now) {
-                    val alarmCal = Calendar.getInstance().apply { timeInMillis = nextAlarm.triggerTime }
-                    val diffMs = nextAlarm.triggerTime - now
-                    val diffMinutes = (diffMs / 60000L).coerceAtLeast(1L)
-                    val is24 = android.text.format.DateFormat.is24HourFormat(this@EssentialsWatchFaceService)
-                    val timeStr = if (is24) {
-                        SimpleDateFormat("HH:mm", Locale.getDefault()).format(alarmCal.time)
-                    } else {
-                        val h = alarmCal.get(Calendar.HOUR).let { if (it == 0) 12 else it }
-                        val m = alarmCal.get(Calendar.MINUTE)
-                        val amPm = if (alarmCal.get(Calendar.AM_PM) == Calendar.AM) "AM" else "PM"
-                        String.format(Locale.getDefault(), "%d:%02d %s", h, m, amPm)
-                    }
-                    return TopScheduleInfo(timeStr, false, diffMinutes)
-                }
-            } catch (_: Exception) { }
 
             return null
         }

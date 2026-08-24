@@ -102,6 +102,11 @@ class CalendarDataListenerService : WearableListenerService() {
                 val watchfaceLeftComplication = dataMap.getString("watchface_left_complication", "HEART_RATE")
                 val watchfaceRightComplication = dataMap.getString("watchface_right_complication", "STEPS")
                 val watchfaceShowUpcomingEvents = dataMap.getBoolean("watchface_show_upcoming_events", true)
+                val watchfaceShowGlance = dataMap.getBoolean("watchface_show_glance", watchfaceShowUpcomingEvents)
+                val watchfaceGlanceBatteryAlerts = dataMap.getBoolean("watchface_glance_battery_alerts", true)
+                val watchfaceGlanceTravel = dataMap.getBoolean("watchface_glance_travel", true)
+                val watchfaceGlanceEvents = dataMap.getBoolean("watchface_glance_events", true)
+                val watchfaceGlanceAlarm = dataMap.getBoolean("watchface_glance_alarm", true)
                 val watchfaceShowGlow = dataMap.getBoolean("watchface_show_glow", true)
 
                 saveDeviceInfo(
@@ -132,7 +137,12 @@ class CalendarDataListenerService : WearableListenerService() {
                     watchfaceLeftComplication,
                     watchfaceRightComplication,
                     watchfaceShowUpcomingEvents,
-                    watchfaceShowGlow
+                    watchfaceShowGlow,
+                    watchfaceShowGlance,
+                    watchfaceGlanceBatteryAlerts,
+                    watchfaceGlanceTravel,
+                    watchfaceGlanceEvents,
+                    watchfaceGlanceAlarm
                 )
                 Log.d(TAG, "Saved device info: Level=$batteryLevel, Charging=$isCharging, TravelActive=$travelActive, TravelName=$travelName")
 
@@ -148,6 +158,11 @@ class CalendarDataListenerService : WearableListenerService() {
                 // Trigger Phone Battery Tile Update
                 TileService.getUpdater(this)
                     .requestUpdate(PhoneBatteryTileService::class.java)
+
+                // Trigger Watch Face Redraw
+                sendBroadcast(Intent("com.sameerasw.essentials.WATCHFACE_PREFS_CHANGED").apply {
+                    setPackage(packageName)
+                })
             }
         }
     }
@@ -180,7 +195,12 @@ class CalendarDataListenerService : WearableListenerService() {
         watchfaceLeftComplication: String = "HEART_RATE",
         watchfaceRightComplication: String = "STEPS",
         watchfaceShowUpcomingEvents: Boolean = true,
-        watchfaceShowGlow: Boolean = true
+        watchfaceShowGlow: Boolean = true,
+        watchfaceShowGlance: Boolean = true,
+        watchfaceGlanceBatteryAlerts: Boolean = true,
+        watchfaceGlanceTravel: Boolean = true,
+        watchfaceGlanceEvents: Boolean = true,
+        watchfaceGlanceAlarm: Boolean = true
     ) {
         val prefs = getSharedPreferences("schedule_prefs", MODE_PRIVATE)
         prefs.edit()
@@ -211,6 +231,11 @@ class CalendarDataListenerService : WearableListenerService() {
             .putString("watchface_left_complication", watchfaceLeftComplication)
             .putString("watchface_right_complication", watchfaceRightComplication)
             .putBoolean("watchface_show_upcoming_events", watchfaceShowUpcomingEvents)
+            .putBoolean("watchface_show_glance", watchfaceShowGlance)
+            .putBoolean("watchface_glance_battery_alerts", watchfaceGlanceBatteryAlerts)
+            .putBoolean("watchface_glance_travel", watchfaceGlanceTravel)
+            .putBoolean("watchface_glance_events", watchfaceGlanceEvents)
+            .putBoolean("watchface_glance_alarm", watchfaceGlanceAlarm)
             .putBoolean("watchface_show_glow", watchfaceShowGlow)
             .putLong("phone_battery_timestamp", System.currentTimeMillis())
             .apply()
