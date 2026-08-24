@@ -118,7 +118,13 @@ class EssentialsCanvasRenderer(
 
     private var sharedPrefs: SharedPreferences? = null
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "theme_primary_color" || key == "phone_battery_level" || key == "synced_calendar_events" || key?.startsWith("watchface_") == true) {
+        if (key == "theme_primary_color" ||
+            key == "phone_battery_level" ||
+            key == "phone_flashlight_on" ||
+            key == "phone_ringer_mode" ||
+            key == "synced_calendar_events" ||
+            key?.startsWith("watchface_") == true
+        ) {
             updateThemeColor()
             invalidate()
         }
@@ -662,8 +668,9 @@ class EssentialsCanvasRenderer(
                                 val modeText = if (ringerMode == 1) "Vib" else "Mute"
                                 canvas.drawText(modeText, compCenterX, sideTextY, sideValuePaint)
                             } else {
-                                // Default state: Only mobile icon centered, no text
-                                drawTintedDrawable(canvas, mobileIconDrawable, compCenterX, centerY, (sideIconSize * 1.15f).toInt(), accentColor)
+                                // Default state: show steps info while keeping the tap action intact
+                                drawTintedDrawable(canvas, stepsIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                canvas.drawText(currentSteps.toString(), compCenterX, sideTextY, sideValuePaint)
                             }
                         }
                         "HEART_RATE" -> {
