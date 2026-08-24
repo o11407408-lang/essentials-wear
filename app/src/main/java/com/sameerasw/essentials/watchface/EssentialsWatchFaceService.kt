@@ -104,6 +104,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var heartIconDrawable: Drawable? = null
         private var stepsIconDrawable: Drawable? = null
         private var distanceIconDrawable: Drawable? = null
+        private var fireIconDrawable: Drawable? = null
         private var calendarIconDrawable: Drawable? = null
         private var alarmIconDrawable: Drawable? = null
 
@@ -186,6 +187,7 @@ class EssentialsWatchFaceService : WallpaperService() {
             heartIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_favorite_24)?.mutate()
             stepsIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_steps_24)?.mutate()
             distanceIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_distance_24)?.mutate()
+            fireIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_local_fire_department_24)?.mutate()
             calendarIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_calendar_today_24)?.mutate()
             alarmIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_alarm_24)?.mutate()
 
@@ -604,6 +606,24 @@ class EssentialsWatchFaceService : WallpaperService() {
                                 val km = (currentSteps * 0.000762f)
                                 val distText = if (km >= 10f) String.format(Locale.getDefault(), "%.0fkm", km) else String.format(Locale.getDefault(), "%.1fkm", km)
                                 canvas.drawText(distText, compCenterX, sideTextY, sideValuePaint)
+                            }
+                            "CALORIES" -> {
+                                drawTintedDrawable(canvas, fireIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                val kcal = (currentSteps * 0.04f).toInt()
+                                val calText = if (kcal > 0) "${kcal}k" else "--"
+                                canvas.drawText(calText, compCenterX, sideTextY, sideValuePaint)
+                            }
+                            "WATCH_BATTERY" -> {
+                                drawTintedDrawable(canvas, watchIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                val watchBat = getWatchBatteryLevel()
+                                val batText = if (watchBat >= 0) "${watchBat}%" else "--"
+                                canvas.drawText(batText, compCenterX, sideTextY, sideValuePaint)
+                            }
+                            "PHONE_BATTERY" -> {
+                                drawTintedDrawable(canvas, mobileIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                val phoneBat = getPhoneBatteryLevel()
+                                val batText = if (phoneBat >= 0) "${phoneBat}%" else "--"
+                                canvas.drawText(batText, compCenterX, sideTextY, sideValuePaint)
                             }
                         }
                     }
