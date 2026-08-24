@@ -41,6 +41,8 @@ import kotlin.math.sin
 
 class EssentialsWatchFaceService : WallpaperService() {
 
+    private data class TopScheduleInfo(val text: String, val isMeeting: Boolean)
+
     override fun onCreateEngine(): Engine {
         return EssentialsEngine()
     }
@@ -52,7 +54,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var sharedPrefs: SharedPreferences? = null
 
         private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "theme_primary_color" || key == "phone_battery_level") {
+            if (key == "theme_primary_color" || key == "phone_battery_level" || key == "synced_calendar_events") {
                 updateThemeColor()
                 draw()
             }
@@ -83,6 +85,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private lateinit var calendar: Calendar
         private lateinit var textPaint: Paint
         private lateinit var datePaint: Paint
+        private lateinit var topEventPaint: Paint
         private lateinit var sideValuePaint: Paint
         private lateinit var circleOutlinePaint: Paint
         private lateinit var trackPaint: Paint
@@ -93,6 +96,8 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var mobileIconDrawable: Drawable? = null
         private var heartIconDrawable: Drawable? = null
         private var stepsIconDrawable: Drawable? = null
+        private var calendarIconDrawable: Drawable? = null
+        private var alarmIconDrawable: Drawable? = null
 
         private var sensorManager: SensorManager? = null
         private var heartRateSensor: Sensor? = null
@@ -124,6 +129,14 @@ class EssentialsWatchFaceService : WallpaperService() {
                 color = Color.WHITE
                 typeface = customTypeface ?: Typeface.DEFAULT
                 fontVariationSettings = "'ROND' 100.0, 'wdth' 100.0, 'wght' 400.0"
+                isAntiAlias = true
+                textAlign = Paint.Align.CENTER
+            }
+
+            topEventPaint = Paint().apply {
+                color = Color.WHITE
+                typeface = customTypeface ?: Typeface.DEFAULT
+                fontVariationSettings = "'ROND' 100.0, 'wdth' 100.0, 'wght' 300.0"
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
             }
@@ -160,6 +173,8 @@ class EssentialsWatchFaceService : WallpaperService() {
             mobileIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_mobile_24)?.mutate()
             heartIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_favorite_24)?.mutate()
             stepsIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_steps_24)?.mutate()
+            calendarIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_calendar_today_24)?.mutate()
+            alarmIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_alarm_24)?.mutate()
 
             sharedPrefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
             sharedPrefs?.registerOnSharedPreferenceChangeListener(prefListener)
@@ -516,6 +531,28 @@ class EssentialsWatchFaceService : WallpaperService() {
                 drawTintedDrawable(canvas, stepsIconDrawable, rightSideCenterX, sideIconY, sideIconSize, accentColor)
                 val stepsText = currentSteps.toString()
                 canvas.drawText(stepsText, rightSideCenterX, sideTextY, sideValuePaint)
+
+                // Draw Top Curved Text: Next upcoming meeting for today or next alarm
+                val topInfo = getUpcomingMeetingOrAlarm()
+                if (topInfo != null) {
+                    topEventPaint.textSize = height * 0.052f
+                    val topRadius = height * 0.44f
+                    val topPathRect = RectF(
+                        centerX - topRadius,
+                        centerY - topRadius,
+                        centerX + topRadius,
+                        centerY + topRadius
+                    )
+                    val topPath = Path().apply {
+                        addArc(topPathRect, 220f, 100f)
+                    }
+                    canvas.drawTextOnPath(topInfo.text, topPath, 0f, 0f, topEventPaint)
+
+                    val topIcon = if (topInfo.isMeeting) calendarIconDrawable else alarmIconDrawable
+                    val topIconSize = (height * 0.055f).toInt()
+                    val topIconY = centerY - (height * 0.36f)
+                    drawTintedDrawable(canvas, topIcon, centerX, topIconY, topIconSize, accentColor)
+                }
             }
 
             // Draw Centered Clock Text
@@ -529,6 +566,78 @@ class EssentialsWatchFaceService : WallpaperService() {
 
             canvas.drawText(hourText, centerX, hourY, textPaint)
             canvas.drawText(minuteText, centerX, minuteY, textPaint)
+        }
+
+        private fun getUpcomingMeetingOrAlarm(): TopScheduleInfo? {
+            val now = System.currentTimeMillis()
+            val cal = Calendar.getInstance().apply { timeInMillis = now }
+            cal.set(Calendar.HOUR_OF_DAY, 23)
+            cal.set(Calendar.MINUTE, 59)
+            cal.set(Calendar.SECOND, 59)
+            cal.set(Calendar.MILLISECOND, 999)
+            val endOfToday = cal.timeInMillis
+
+            val prefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+            val json = prefs.getString("synced_calendar_events", null)
+
+            if (!json.isNullOrBlank()) {
+                try {
+                    val array = org.json.JSONArray(json)
+                    var earliestEventTitle: String? = null
+                    var earliestBegin = Long.MAX_VALUE
+
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        val begin = obj.optLong("begin", 0L)
+                        val end = obj.optLong("end", 0L)
+                        val title = obj.optString("title", "")
+                        val allDay = obj.optBoolean("allDay", false)
+
+                        if (!allDay && begin > now && begin <= endOfToday && begin < earliestBegin) {
+                            earliestBegin = begin
+                            earliestEventTitle = title
+                        } else if (!allDay && now in begin..end && begin < earliestBegin) {
+                            earliestBegin = begin
+                            earliestEventTitle = title
+                        }
+                    }
+
+                    if (earliestEventTitle != null) {
+                        val eventTimeCal = Calendar.getInstance().apply { timeInMillis = earliestBegin }
+                        val is24 = android.text.format.DateFormat.is24HourFormat(this@EssentialsWatchFaceService)
+                        val timeStr = if (is24) {
+                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(eventTimeCal.time)
+                        } else {
+                            val h = eventTimeCal.get(Calendar.HOUR).let { if (it == 0) 12 else it }
+                            val m = eventTimeCal.get(Calendar.MINUTE)
+                            String.format(Locale.getDefault(), "%d:%02d", h, m)
+                        }
+                        val cleanTitle = if (earliestEventTitle.length > 14) earliestEventTitle.take(13) + "…" else earliestEventTitle
+                        return TopScheduleInfo("$cleanTitle $timeStr", true)
+                    }
+                } catch (_: Exception) { }
+            }
+
+            // Fallback: Next Alarm
+            try {
+                val am = getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager
+                val nextAlarm = am?.nextAlarmClock
+                if (nextAlarm != null && nextAlarm.triggerTime > now) {
+                    val alarmCal = Calendar.getInstance().apply { timeInMillis = nextAlarm.triggerTime }
+                    val is24 = android.text.format.DateFormat.is24HourFormat(this@EssentialsWatchFaceService)
+                    val timeStr = if (is24) {
+                        SimpleDateFormat("HH:mm", Locale.getDefault()).format(alarmCal.time)
+                    } else {
+                        val h = alarmCal.get(Calendar.HOUR).let { if (it == 0) 12 else it }
+                        val m = alarmCal.get(Calendar.MINUTE)
+                        val amPm = if (alarmCal.get(Calendar.AM_PM) == Calendar.AM) "AM" else "PM"
+                        String.format(Locale.getDefault(), "%d:%02d %s", h, m, amPm)
+                    }
+                    return TopScheduleInfo(timeStr, false)
+                }
+            } catch (_: Exception) { }
+
+            return null
         }
 
         private fun drawTintedDrawable(
