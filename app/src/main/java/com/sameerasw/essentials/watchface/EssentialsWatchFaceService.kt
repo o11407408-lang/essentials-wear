@@ -8,12 +8,14 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.hardware.Sensor
@@ -41,7 +43,11 @@ import kotlin.math.sin
 
 class EssentialsWatchFaceService : WallpaperService() {
 
-    private data class TopScheduleInfo(val text: String, val isMeeting: Boolean)
+    private data class TopScheduleInfo(
+        val text: String,
+        val isMeeting: Boolean,
+        val remainingMinutes: Long? = null
+    )
 
     override fun onCreateEngine(): Engine {
         return EssentialsEngine()
@@ -90,6 +96,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private lateinit var circleOutlinePaint: Paint
         private lateinit var trackPaint: Paint
         private lateinit var progressPaint: Paint
+        private lateinit var bgGradientPaint: Paint
         private var customTypeface: Typeface? = null
 
         private var watchIconDrawable: Drawable? = null
@@ -152,6 +159,10 @@ class EssentialsWatchFaceService : WallpaperService() {
             circleOutlinePaint = Paint().apply {
                 color = getTrackColor()
                 style = Paint.Style.STROKE
+                isAntiAlias = true
+            }
+
+            bgGradientPaint = Paint().apply {
                 isAntiAlias = true
             }
 
@@ -442,6 +453,39 @@ class EssentialsWatchFaceService : WallpaperService() {
             val centerX = width / 2f
             val centerY = height / 2f
 
+            val topInfo = if (!isAmbient) getUpcomingMeetingOrAlarm() else null
+
+            if (!isAmbient && topInfo != null && topInfo.remainingMinutes != null && topInfo.remainingMinutes <= 120L) {
+                val mins = topInfo.remainingMinutes.coerceAtLeast(0L)
+                val proximityFactor = ((120L - mins).toFloat() / 105f).coerceIn(0f, 1f)
+
+                if (proximityFactor > 0f) {
+                    val accent = getClockColor()
+                    val darkFactor = 0.60f
+                    val darkRed = (Color.red(accent) * darkFactor).toInt()
+                    val darkGreen = (Color.green(accent) * darkFactor).toInt()
+                    val darkBlue = (Color.blue(accent) * darkFactor).toInt()
+
+                    val topAlpha = (40 + (190 * proximityFactor)).toInt().coerceIn(0, 255)
+                    val midAlpha = (20 + (100 * proximityFactor)).toInt().coerceIn(0, 255)
+                    val gradientHeight = height * (0.35f + (0.50f * proximityFactor))
+
+                    val topAlphaColor = Color.argb(topAlpha, darkRed, darkGreen, darkBlue)
+                    val midAlphaColor = Color.argb(midAlpha, darkRed, darkGreen, darkBlue)
+
+                    bgGradientPaint.shader = LinearGradient(
+                        centerX,
+                        0f,
+                        centerX,
+                        gradientHeight,
+                        intArrayOf(topAlphaColor, midAlphaColor, Color.TRANSPARENT),
+                        floatArrayOf(0f, 0.40f, 1f),
+                        Shader.TileMode.CLAMP
+                    )
+                    canvas.drawRect(0f, 0f, width, height, bgGradientPaint)
+                }
+            }
+
             if (textPaint.textSize == 0f) {
                 textPaint.textSize = height * 0.25f
             }
@@ -533,7 +577,6 @@ class EssentialsWatchFaceService : WallpaperService() {
                 canvas.drawText(stepsText, rightSideCenterX, sideTextY, sideValuePaint)
 
                 // Draw Top Curved Text: Next upcoming meeting for today or next alarm
-                val topInfo = getUpcomingMeetingOrAlarm()
                 if (topInfo != null) {
                     topEventPaint.textSize = height * 0.065f
                     val topRadius = height * 0.43f
@@ -604,20 +647,20 @@ class EssentialsWatchFaceService : WallpaperService() {
 
                     if (earliestEventTitle != null) {
                         val diffMs = earliestBegin - now
+                        val diffMinutes = if (diffMs <= 0) 0L else (diffMs / 60000L).coerceAtLeast(1L)
                         val timeStr = if (diffMs <= 0) {
                             "Now"
                         } else {
-                            val diffMinutes = (diffMs / 60000L).coerceAtLeast(1)
                             if (diffMinutes < 60) {
-                                "${diffMinutes}m"
+                                "in ${diffMinutes}m"
                             } else {
                                 val hours = diffMinutes / 60
                                 val remainingMin = diffMinutes % 60
-                                if (remainingMin > 0) "${hours}h ${remainingMin}m" else "${hours}h"
+                                if (remainingMin > 0) "in ${hours}h ${remainingMin}m" else "in ${hours}h"
                             }
                         }
                         val cleanTitle = if (earliestEventTitle.length > 20) earliestEventTitle.take(19) + "…" else earliestEventTitle
-                        return TopScheduleInfo("$cleanTitle $timeStr", true)
+                        return TopScheduleInfo("$cleanTitle $timeStr", true, diffMinutes)
                     }
                 } catch (_: Exception) { }
             }
@@ -628,6 +671,8 @@ class EssentialsWatchFaceService : WallpaperService() {
                 val nextAlarm = am?.nextAlarmClock
                 if (nextAlarm != null && nextAlarm.triggerTime > now) {
                     val alarmCal = Calendar.getInstance().apply { timeInMillis = nextAlarm.triggerTime }
+                    val diffMs = nextAlarm.triggerTime - now
+                    val diffMinutes = (diffMs / 60000L).coerceAtLeast(1L)
                     val is24 = android.text.format.DateFormat.is24HourFormat(this@EssentialsWatchFaceService)
                     val timeStr = if (is24) {
                         SimpleDateFormat("HH:mm", Locale.getDefault()).format(alarmCal.time)
@@ -637,7 +682,7 @@ class EssentialsWatchFaceService : WallpaperService() {
                         val amPm = if (alarmCal.get(Calendar.AM_PM) == Calendar.AM) "AM" else "PM"
                         String.format(Locale.getDefault(), "%d:%02d %s", h, m, amPm)
                     }
-                    return TopScheduleInfo(timeStr, false)
+                    return TopScheduleInfo(timeStr, false, diffMinutes)
                 }
             } catch (_: Exception) { }
 
