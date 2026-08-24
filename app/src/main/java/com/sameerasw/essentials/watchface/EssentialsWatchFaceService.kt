@@ -137,6 +137,10 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var lastHeartRateUpdateMs: Long = 0L
         private var surfaceWidth: Float = 454f
         private var surfaceHeight: Float = 454f
+        private var touchDownX: Float = 0f
+        private var touchDownY: Float = 0f
+        private var touchDownTime: Long = 0L
+        private var touchSlop: Float = 24f
 
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
@@ -224,6 +228,8 @@ class EssentialsWatchFaceService : WallpaperService() {
 
             sharedPrefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
             sharedPrefs?.registerOnSharedPreferenceChangeListener(prefListener)
+
+            touchSlop = android.view.ViewConfiguration.get(this@EssentialsWatchFaceService).scaledTouchSlop.toFloat()
 
             sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
             heartRateSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_HEART_RATE)
@@ -426,24 +432,18 @@ class EssentialsWatchFaceService : WallpaperService() {
             when (compType) {
                 "DYNAMIC" -> {
                     val flashlightOn = prefs?.getBoolean("phone_flashlight_on", false) ?: false
-                    val travelActive = prefs?.getBoolean("phone_travel_active", false) ?: false
-                    val syncLocationReachedEnabled = prefs?.getBoolean("phone_watch_sync_location_reached_enabled", true) ?: true
                     val ringerMode = prefs?.getInt("phone_ringer_mode", 2) ?: 2
 
                     if (flashlightOn) {
                         // Toggle flashlight off
                         HapticUtil.performClick(this@EssentialsWatchFaceService)
                         sendPhoneMessage("/toggle_flashlight")
-                    } else if (travelActive && syncLocationReachedEnabled) {
-                        // Open Your Android screen
-                        HapticUtil.performClick(this@EssentialsWatchFaceService)
-                        openYourAndroidScreen()
                     } else if (ringerMode != 2) {
                         // Ringer is Silent (0) or Vibrate (1) -> switch to Sound (2)
                         HapticUtil.performClick(this@EssentialsWatchFaceService)
                         sendPhoneMessage("/toggle_sound_mode")
                     } else {
-                        // None of the above -> open Your Android directly
+                        // Default state: open Your Android screen directly
                         HapticUtil.performClick(this@EssentialsWatchFaceService)
                         openYourAndroidScreen()
                     }
@@ -464,51 +464,70 @@ class EssentialsWatchFaceService : WallpaperService() {
 
         override fun onTouchEvent(event: MotionEvent?) {
             super.onTouchEvent(event)
-            if (event?.action == MotionEvent.ACTION_UP && !isAmbient) {
-                val touchX = event.x
-                val touchY = event.y
+            if (isAmbient || event == null) return
 
-                val prefs = sharedPrefs
-                val width = if (surfaceWidth > 0f) surfaceWidth else 454f
-                val height = if (surfaceHeight > 0f) surfaceHeight else 454f
-                val centerX = width / 2f
-                val centerY = height / 2f
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchDownX = event.x
+                    touchDownY = event.y
+                    touchDownTime = System.currentTimeMillis()
+                }
+                MotionEvent.ACTION_UP -> {
+                    val touchUpX = event.x
+                    val touchUpY = event.y
+                    val elapsed = System.currentTimeMillis() - touchDownTime
+                    val deltaDistance = Math.hypot((touchUpX - touchDownX).toDouble(), (touchUpY - touchDownY).toDouble()).toFloat()
 
-                // 1. Check Top Info (At a Glance meeting / travel / battery alert / next alarm) Tap
-                val showUpcomingEvents = prefs?.getBoolean("watchface_show_glance", prefs?.getBoolean("watchface_show_upcoming_events", true) ?: true) ?: true
-                if (showUpcomingEvents && touchY < centerY - (height * 0.15f)) {
-                    val topInfo = getUpcomingMeetingOrAlarm()
-                    if (topInfo != null) {
-                        HapticUtil.performClick(this@EssentialsWatchFaceService)
-                        when (topInfo.type) {
-                            GlanceType.EVENT -> openScheduleScreen()
-                            GlanceType.ALARM -> openAlarmApp()
-                            GlanceType.TRAVEL, GlanceType.BATTERY_ALERT -> openYourAndroidScreen()
-                        }
+                    // Ensure this was a clean button tap, not a drag / scroll gesture
+                    val maxSlop = if (touchSlop > 0f) touchSlop else 24f
+                    if (deltaDistance > maxSlop || elapsed > 600L) {
                         return
                     }
-                }
 
-                // 2. Check Side Complications Tap
-                val showComplications = prefs?.getBoolean("watchface_show_complications", true) ?: true
-                if (showComplications) {
-                    val circleRadius = height * 0.15f // generous touch target radius
+                    val prefs = sharedPrefs
+                    val width = if (surfaceWidth > 0f) surfaceWidth else 454f
+                    val height = if (surfaceHeight > 0f) surfaceHeight else 454f
+                    val centerX = width / 2f
+                    val centerY = height / 2f
 
-                    val leftCenterX = width * 0.12f
-                    val rightCenterX = width * 0.88f
+                    // 1. Check Top Info (At a Glance meeting / travel / battery alert / next alarm) Tap
+                    val showUpcomingEvents = prefs?.getBoolean("watchface_show_glance", prefs?.getBoolean("watchface_show_upcoming_events", true) ?: true) ?: true
+                    if (showUpcomingEvents && touchUpY < centerY - (height * 0.15f) && touchDownY < centerY - (height * 0.15f)) {
+                        val topInfo = getUpcomingMeetingOrAlarm()
+                        if (topInfo != null) {
+                            HapticUtil.performClick(this@EssentialsWatchFaceService)
+                            when (topInfo.type) {
+                                GlanceType.EVENT -> openScheduleScreen()
+                                GlanceType.ALARM -> openAlarmApp()
+                                GlanceType.TRAVEL, GlanceType.BATTERY_ALERT -> openYourAndroidScreen()
+                            }
+                            return
+                        }
+                    }
 
-                    val distLeft = Math.hypot((touchX - leftCenterX).toDouble(), (touchY - centerY).toDouble()).toFloat()
-                    val distRight = Math.hypot((touchX - rightCenterX).toDouble(), (touchY - centerY).toDouble()).toFloat()
+                    // 2. Check Side Complications Tap
+                    val showComplications = prefs?.getBoolean("watchface_show_complications", true) ?: true
+                    if (showComplications) {
+                        val circleRadius = height * 0.14f // touch target radius
 
-                    val leftComplicationType = prefs?.getString("watchface_left_complication", "DYNAMIC") ?: "DYNAMIC"
-                    val rightComplicationType = prefs?.getString("watchface_right_complication", "STEPS") ?: "STEPS"
+                        val leftCenterX = width * 0.12f
+                        val rightCenterX = width * 0.88f
 
-                    if (distLeft <= circleRadius) {
-                        handleComplicationTap(leftComplicationType)
-                        return
-                    } else if (distRight <= circleRadius) {
-                        handleComplicationTap(rightComplicationType)
-                        return
+                        val distDownLeft = Math.hypot((touchDownX - leftCenterX).toDouble(), (touchDownY - centerY).toDouble()).toFloat()
+                        val distDownRight = Math.hypot((touchDownX - rightCenterX).toDouble(), (touchDownY - centerY).toDouble()).toFloat()
+                        val distUpLeft = Math.hypot((touchUpX - leftCenterX).toDouble(), (touchUpY - centerY).toDouble()).toFloat()
+                        val distUpRight = Math.hypot((touchUpX - rightCenterX).toDouble(), (touchUpY - centerY).toDouble()).toFloat()
+
+                        val leftComplicationType = prefs?.getString("watchface_left_complication", "DYNAMIC") ?: "DYNAMIC"
+                        val rightComplicationType = prefs?.getString("watchface_right_complication", "STEPS") ?: "STEPS"
+
+                        if (distDownLeft <= circleRadius && distUpLeft <= circleRadius) {
+                            handleComplicationTap(leftComplicationType)
+                            return
+                        } else if (distDownRight <= circleRadius && distUpRight <= circleRadius) {
+                            handleComplicationTap(rightComplicationType)
+                            return
+                        }
                     }
                 }
             }
@@ -824,23 +843,11 @@ class EssentialsWatchFaceService : WallpaperService() {
                         when (type) {
                             "DYNAMIC" -> {
                                 val flashlightOn = prefs?.getBoolean("phone_flashlight_on", false) ?: false
-                                val travelActive = prefs?.getBoolean("phone_travel_active", false) ?: false
-                                val syncLocationReachedEnabled = prefs?.getBoolean("phone_watch_sync_location_reached_enabled", true) ?: true
                                 val ringerMode = prefs?.getInt("phone_ringer_mode", 2) ?: 2
-                                val travelTime = prefs?.getString("phone_travel_remaining_time", "") ?: ""
-                                val travelDist = prefs?.getString("phone_travel_remaining_distance", "") ?: ""
 
                                 if (flashlightOn) {
                                     drawTintedDrawable(canvas, flashlightIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
                                     canvas.drawText("On", compCenterX, sideTextY, sideValuePaint)
-                                } else if (travelActive && syncLocationReachedEnabled) {
-                                    drawTintedDrawable(canvas, travelIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
-                                    val travelText = when {
-                                        travelTime.isNotBlank() -> travelTime
-                                        travelDist.isNotBlank() -> travelDist
-                                        else -> "ETA"
-                                    }
-                                    canvas.drawText(travelText, compCenterX, sideTextY, sideValuePaint)
                                 } else if (ringerMode != 2) {
                                     val icon = if (ringerMode == 1) vibrateIconDrawable else muteIconDrawable
                                     drawTintedDrawable(canvas, icon ?: soundIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
