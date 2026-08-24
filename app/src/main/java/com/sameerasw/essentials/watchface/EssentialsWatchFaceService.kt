@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
@@ -26,6 +27,7 @@ import androidx.core.content.res.ResourcesCompat
 import com.sameerasw.essentials.R
 import com.sameerasw.essentials.utils.ThemeUtil
 import java.lang.ref.WeakReference
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
@@ -62,6 +64,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var isVisibleState = false
         private lateinit var calendar: Calendar
         private lateinit var textPaint: Paint
+        private lateinit var datePaint: Paint
         private lateinit var trackPaint: Paint
         private lateinit var progressPaint: Paint
         private var customTypeface: Typeface? = null
@@ -85,6 +88,14 @@ class EssentialsWatchFaceService : WallpaperService() {
                 typeface = customTypeface ?: Typeface.DEFAULT
                 // Variable font settings: 'ROND' 100 (rounded), 'wdth' 150 (wider), 'wght' 100 (thinner)
                 fontVariationSettings = "'ROND' 100.0, 'wdth' 150.0, 'wght' 100.0"
+                isAntiAlias = true
+                textAlign = Paint.Align.CENTER
+            }
+
+            datePaint = Paint().apply {
+                color = getClockColor()
+                typeface = customTypeface ?: Typeface.DEFAULT
+                fontVariationSettings = "'ROND' 100.0, 'wdth' 100.0, 'wght' 400.0"
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
             }
@@ -123,6 +134,7 @@ class EssentialsWatchFaceService : WallpaperService() {
         private fun updateThemeColor() {
             val color = getClockColor()
             textPaint.color = color
+            datePaint.color = color
             progressPaint.color = color
             trackPaint.color = getTrackColor()
         }
@@ -273,6 +285,21 @@ class EssentialsWatchFaceService : WallpaperService() {
 
             canvas.drawText(hourText, centerX, hourY, textPaint)
             canvas.drawText(minuteText, centerX, minuteY, textPaint)
+
+            // Draw Curved Date Text at bottom center
+            val dateText = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(calendar.time)
+            datePaint.textSize = height * 0.075f
+            val dateRadius = height * 0.37f
+            val datePathRect = RectF(
+                centerX - dateRadius,
+                centerY - dateRadius,
+                centerX + dateRadius,
+                centerY + dateRadius
+            )
+            val datePath = Path().apply {
+                addArc(datePathRect, 140f, -100f)
+            }
+            canvas.drawTextOnPath(dateText, datePath, 0f, 0f, datePaint)
         }
 
         private fun drawTintedDrawable(
