@@ -1,10 +1,14 @@
 package com.sameerasw.essentials.presentation.schedule
 
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -28,11 +32,24 @@ import java.util.Locale
 @Composable
 fun ScheduleScreen() {
     val context = LocalContext.current
-    val allEvents = remember {
-        MainTileService.getSyncedEvents(context)
+    var allEvents by remember {
+        mutableStateOf(MainTileService.getSyncedEvents(context))
     }
     val themeColor = remember {
         ThemeUtil.getThemeColor(context)
+    }
+
+    androidx.compose.runtime.DisposableEffect(context) {
+        val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "synced_calendar_events") {
+                allEvents = MainTileService.getSyncedEvents(context)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
     }
 
     val groupedEvents = remember(allEvents) {

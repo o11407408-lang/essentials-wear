@@ -987,35 +987,32 @@ class EssentialsWatchFaceService : WallpaperService() {
             // 1. Check for upcoming calendar event starting within 30 minutes
             var earlyUpcomingMeeting: TopScheduleInfo? = null
             if (showEvents) {
-                val json = prefs.getString("synced_calendar_events", null)
-                if (!json.isNullOrBlank()) {
-                    try {
-                        val cal = Calendar.getInstance().apply { timeInMillis = now }
-                        cal.set(Calendar.HOUR_OF_DAY, 23)
-                        cal.set(Calendar.MINUTE, 59)
-                        cal.set(Calendar.SECOND, 59)
-                        cal.set(Calendar.MILLISECOND, 999)
-                        val endOfToday = cal.timeInMillis
+                try {
+                    val cal = Calendar.getInstance().apply { timeInMillis = now }
+                    cal.set(Calendar.HOUR_OF_DAY, 23)
+                    cal.set(Calendar.MINUTE, 59)
+                    cal.set(Calendar.SECOND, 59)
+                    cal.set(Calendar.MILLISECOND, 999)
+                    val endOfToday = cal.timeInMillis
 
-                        val array = org.json.JSONArray(json)
-                        var earliestEventTitle: String? = null
-                        var earliestBegin = Long.MAX_VALUE
+                    val eventList = com.sameerasw.essentials.tile.MainTileService.getSyncedEvents(this@EssentialsWatchFaceService)
+                    var earliestEventTitle: String? = null
+                    var earliestBegin = Long.MAX_VALUE
 
-                        for (i in 0 until array.length()) {
-                            val obj = array.getJSONObject(i)
-                            val begin = obj.optLong("begin", 0L)
-                            val end = obj.optLong("end", 0L)
-                            val title = obj.optString("title", "")
-                            val allDay = obj.optBoolean("allDay", false)
+                    for (event in eventList) {
+                        val begin = event.begin
+                        val end = event.end
+                        val title = event.title ?: ""
+                        val allDay = event.allDay
 
-                            if (!allDay && begin > now && begin <= endOfToday && begin < earliestBegin) {
-                                earliestBegin = begin
-                                earliestEventTitle = title
-                            } else if (!allDay && now in begin..end && begin < earliestBegin) {
-                                earliestBegin = begin
-                                earliestEventTitle = title
-                            }
+                        if (!allDay && begin > now && begin <= endOfToday && begin < earliestBegin) {
+                            earliestBegin = begin
+                            earliestEventTitle = title
+                        } else if (!allDay && now in begin..end && begin < earliestBegin) {
+                            earliestBegin = begin
+                            earliestEventTitle = title
                         }
+                    }
 
                         if (earliestEventTitle != null) {
                             val diffMs = earliestBegin - now
@@ -1041,8 +1038,7 @@ class EssentialsWatchFaceService : WallpaperService() {
                                 glowPeakMinutes = 15L
                             )
                         }
-                    } catch (_: Exception) { }
-                }
+                } catch (_: Exception) { }
             }
 
             // If an event has not started and is within 30 minutes, it overrides low battery alert

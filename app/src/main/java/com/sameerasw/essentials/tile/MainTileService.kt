@@ -43,16 +43,31 @@ class MainTileService : SuspendingTileService() {
 
     companion object {
         fun getSyncedEvents(context: Context): List<com.sameerasw.essentials.services.CalendarDataListenerService.CalendarEvent> {
-            val prefs = context.getSharedPreferences("schedule_prefs", MODE_PRIVATE)
-            val json = prefs.getString("synced_calendar_events", null) ?: return emptyList()
+            val events = mutableListOf<com.sameerasw.essentials.services.CalendarDataListenerService.CalendarEvent>()
 
-            val type = object :
-                TypeToken<List<com.sameerasw.essentials.services.CalendarDataListenerService.CalendarEvent>>() {}.type
-            return try {
-                Gson().fromJson(json, type) ?: emptyList()
-            } catch (e: Exception) {
-                emptyList()
+            // Read events synced from phone
+            val prefs = context.getSharedPreferences("schedule_prefs", MODE_PRIVATE)
+            val json = prefs.getString("synced_calendar_events", null)
+            if (!json.isNullOrBlank()) {
+                val type = object :
+                    TypeToken<List<com.sameerasw.essentials.services.CalendarDataListenerService.CalendarEvent>>() {}.type
+                try {
+                    val phoneEvents: List<com.sameerasw.essentials.services.CalendarDataListenerService.CalendarEvent>? = Gson().fromJson(json, type)
+                    if (phoneEvents != null) {
+                        for (pe in phoneEvents) {
+                            if (pe.title.isNullOrBlank() || pe.title.equals("No Title", ignoreCase = true)) continue
+                            events.add(pe)
+                        }
+                    }
+                } catch (_: Exception) { }
             }
+
+            val now = System.currentTimeMillis()
+            return events
+                .filter { it.begin >= now || it.end >= now }
+                .sortedBy { it.begin }
+                .distinctBy { "${it.title}_${it.begin}" }
+                .take(50)
         }
     }
 }
