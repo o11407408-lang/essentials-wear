@@ -330,6 +330,83 @@ class EssentialsWatchFaceService : WallpaperService() {
             }
         }
 
+        private fun openScheduleScreen() {
+            try {
+                val intent = Intent(this@EssentialsWatchFaceService, com.sameerasw.essentials.presentation.MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra(com.sameerasw.essentials.presentation.MainActivity.EXTRA_NAVIGATE_TO, com.sameerasw.essentials.presentation.MainActivity.NAV_SCHEDULE)
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("EssentialsWatchFace", "Failed to launch Schedule screen", e)
+            }
+        }
+
+        private fun openAlarmApp() {
+            try {
+                val alarmIntent = Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(alarmIntent)
+            } catch (_: Exception) {
+                try {
+                    // Fallback to Clock/DeskClock package intents on Wear OS
+                    val packageNames = listOf(
+                        "com.google.android.deskclock",
+                        "com.samsung.android.watch.watchclock",
+                        "com.google.android.wearable.deskclock"
+                    )
+                    var launched = false
+                    for (pkg in packageNames) {
+                        val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                        if (launchIntent != null) {
+                            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(launchIntent)
+                            launched = true
+                            break
+                        }
+                    }
+                    if (!launched) {
+                        openScheduleScreen()
+                    }
+                } catch (e: Exception) {
+                    Log.e("EssentialsWatchFace", "Failed to open alarm app", e)
+                }
+            }
+        }
+
+        private fun openHealthApp() {
+            val healthPackages = listOf(
+                "com.google.android.apps.fitness", // Google Fit
+                "com.google.android.wearable.fit",
+                "com.google.android.wearable.healthservices",
+                "com.samsung.android.health.ring",
+                "com.sec.android.app.shealth", // Samsung Health
+                "com.fitbit.FitbitMobile" // Fitbit on Pixel Watch
+            )
+            var launched = false
+            for (pkg in healthPackages) {
+                try {
+                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(launchIntent)
+                        launched = true
+                        break
+                    }
+                } catch (_: Exception) { }
+            }
+            if (!launched) {
+                try {
+                    // Generic health action
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(intent)
+                } catch (_: Exception) { }
+            }
+        }
+
         private fun handleComplicationTap(compType: String) {
             val prefs = sharedPrefs
             when (compType) {
@@ -357,6 +434,10 @@ class EssentialsWatchFaceService : WallpaperService() {
                         openYourAndroidScreen()
                     }
                 }
+                "HEART_RATE", "STEPS", "DISTANCE", "CALORIES" -> {
+                    HapticUtil.performClick(this@EssentialsWatchFaceService)
+                    openHealthApp()
+                }
                 "TRAVEL", "SOUND_MODE", "NOTIFICATIONS", "NOW_PLAYING", "PHONE_BATTERY" -> {
                     HapticUtil.performClick(this@EssentialsWatchFaceService)
                     openYourAndroidScreen()
@@ -374,11 +455,29 @@ class EssentialsWatchFaceService : WallpaperService() {
                 val touchY = event.y
 
                 val prefs = sharedPrefs
+                val width = 454f
+                val height = 454f
+                val centerX = width / 2f
+                val centerY = height / 2f
+
+                // 1. Check Top Info (At a Glance meeting / next alarm) Tap
+                val showUpcomingEvents = prefs?.getBoolean("watchface_show_upcoming_events", true) ?: true
+                if (showUpcomingEvents && touchY < centerY - (height * 0.22f)) {
+                    val topInfo = getUpcomingMeetingOrAlarm()
+                    if (topInfo != null) {
+                        HapticUtil.performClick(this@EssentialsWatchFaceService)
+                        if (topInfo.isMeeting) {
+                            openScheduleScreen()
+                        } else {
+                            openAlarmApp()
+                        }
+                        return
+                    }
+                }
+
+                // 2. Check Side Complications Tap
                 val showComplications = prefs?.getBoolean("watchface_show_complications", true) ?: true
                 if (showComplications) {
-                    val width = 454f // fallback or use measured width
-                    val height = 454f
-                    val centerY = height / 2f
                     val circleRadius = height * 0.14f // touch target radius
 
                     val leftCenterX = width * 0.12f
@@ -392,8 +491,10 @@ class EssentialsWatchFaceService : WallpaperService() {
 
                     if (distLeft <= circleRadius) {
                         handleComplicationTap(leftComplicationType)
+                        return
                     } else if (distRight <= circleRadius) {
                         handleComplicationTap(rightComplicationType)
+                        return
                     }
                 }
             }
