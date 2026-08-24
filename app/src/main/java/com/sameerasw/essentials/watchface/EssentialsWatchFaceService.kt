@@ -515,9 +515,9 @@ class EssentialsWatchFaceService : WallpaperService() {
                 val accentColor = getClockColor()
 
                 circleOutlinePaint.strokeWidth = height * 0.01f
-                val circleRadius = height * 0.09f
+                val circleRadius = height * 0.11f
 
-                val leftSideCenterX = width * 0.16f
+                val leftSideCenterX = width * 0.12f
                 val sideIconY = centerY - (height * 0.045f)
                 val sideTextY = centerY + (height * 0.065f)
 
@@ -526,7 +526,7 @@ class EssentialsWatchFaceService : WallpaperService() {
                 val hrText = if (currentHeartRate > 0) currentHeartRate.toString() else "--"
                 canvas.drawText(hrText, leftSideCenterX, sideTextY, sideValuePaint)
 
-                val rightSideCenterX = width * 0.84f
+                val rightSideCenterX = width * 0.88f
                 canvas.drawCircle(rightSideCenterX, centerY, circleRadius, circleOutlinePaint)
                 drawTintedDrawable(canvas, stepsIconDrawable, rightSideCenterX, sideIconY, sideIconSize, accentColor)
                 val stepsText = currentSteps.toString()
@@ -535,8 +535,8 @@ class EssentialsWatchFaceService : WallpaperService() {
                 // Draw Top Curved Text: Next upcoming meeting for today or next alarm
                 val topInfo = getUpcomingMeetingOrAlarm()
                 if (topInfo != null) {
-                    topEventPaint.textSize = height * 0.052f
-                    val topRadius = height * 0.44f
+                    topEventPaint.textSize = height * 0.065f
+                    val topRadius = height * 0.43f
                     val topPathRect = RectF(
                         centerX - topRadius,
                         centerY - topRadius,
@@ -544,13 +544,13 @@ class EssentialsWatchFaceService : WallpaperService() {
                         centerY + topRadius
                     )
                     val topPath = Path().apply {
-                        addArc(topPathRect, 220f, 100f)
+                        addArc(topPathRect, 210f, 120f)
                     }
                     canvas.drawTextOnPath(topInfo.text, topPath, 0f, 0f, topEventPaint)
 
                     val topIcon = if (topInfo.isMeeting) calendarIconDrawable else alarmIconDrawable
-                    val topIconSize = (height * 0.055f).toInt()
-                    val topIconY = centerY - (height * 0.36f)
+                    val topIconSize = (height * 0.065f).toInt()
+                    val topIconY = centerY - (height * 0.35f)
                     drawTintedDrawable(canvas, topIcon, centerX, topIconY, topIconSize, accentColor)
                 }
             }
@@ -603,16 +603,20 @@ class EssentialsWatchFaceService : WallpaperService() {
                     }
 
                     if (earliestEventTitle != null) {
-                        val eventTimeCal = Calendar.getInstance().apply { timeInMillis = earliestBegin }
-                        val is24 = android.text.format.DateFormat.is24HourFormat(this@EssentialsWatchFaceService)
-                        val timeStr = if (is24) {
-                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(eventTimeCal.time)
+                        val diffMs = earliestBegin - now
+                        val timeStr = if (diffMs <= 0) {
+                            "Now"
                         } else {
-                            val h = eventTimeCal.get(Calendar.HOUR).let { if (it == 0) 12 else it }
-                            val m = eventTimeCal.get(Calendar.MINUTE)
-                            String.format(Locale.getDefault(), "%d:%02d", h, m)
+                            val diffMinutes = (diffMs / 60000L).coerceAtLeast(1)
+                            if (diffMinutes < 60) {
+                                "${diffMinutes}m"
+                            } else {
+                                val hours = diffMinutes / 60
+                                val remainingMin = diffMinutes % 60
+                                if (remainingMin > 0) "${hours}h ${remainingMin}m" else "${hours}h"
+                            }
                         }
-                        val cleanTitle = if (earliestEventTitle.length > 14) earliestEventTitle.take(13) + "…" else earliestEventTitle
+                        val cleanTitle = if (earliestEventTitle.length > 20) earliestEventTitle.take(19) + "…" else earliestEventTitle
                         return TopScheduleInfo("$cleanTitle $timeStr", true)
                     }
                 } catch (_: Exception) { }
