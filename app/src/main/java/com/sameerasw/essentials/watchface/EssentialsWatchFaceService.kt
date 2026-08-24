@@ -5,16 +5,23 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
+import android.os.BatteryManager
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
+import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import com.sameerasw.essentials.R
 import com.sameerasw.essentials.utils.ThemeUtil
@@ -22,13 +29,8 @@ import java.lang.ref.WeakReference
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
-
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.os.BatteryManager
-import android.graphics.RectF
+import kotlin.math.cos
+import kotlin.math.sin
 
 class EssentialsWatchFaceService : WallpaperService() {
 
@@ -36,14 +38,14 @@ class EssentialsWatchFaceService : WallpaperService() {
         return EssentialsEngine()
     }
 
-    inner class EssentialsEngine : WallpaperService.Engine(), SensorEventListener {
+    inner class EssentialsEngine : WallpaperService.Engine() {
 
         private val updateTimeHandler = EngineHandler(this)
         private var timeZoneReceiverRegistered = false
         private var sharedPrefs: SharedPreferences? = null
 
         private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "theme_primary_color") {
+            if (key == "theme_primary_color" || key == "phone_battery_level") {
                 updateThemeColor()
                 draw()
             }
@@ -64,11 +66,8 @@ class EssentialsWatchFaceService : WallpaperService() {
         private lateinit var progressPaint: Paint
         private var customTypeface: Typeface? = null
 
-        private var sensorManager: SensorManager? = null
-        private var stepSensor: Sensor? = null
-        private var initialSteps = -1
-        private var currentSteps = 0
-        private val dailyStepGoal = 10000
+        private var watchIconDrawable: Drawable? = null
+        private var mobileIconDrawable: Drawable? = null
 
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
@@ -104,12 +103,11 @@ class EssentialsWatchFaceService : WallpaperService() {
                 isAntiAlias = true
             }
 
+            watchIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_watch_24)?.mutate()
+            mobileIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_mobile_24)?.mutate()
+
             sharedPrefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
             sharedPrefs?.registerOnSharedPreferenceChangeListener(prefListener)
-
-            sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-            stepSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-                ?: sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
         }
 
         private fun getClockColor(): Int {
@@ -132,7 +130,6 @@ class EssentialsWatchFaceService : WallpaperService() {
         override fun onDestroy() {
             updateTimeHandler.removeMessages(MSG_UPDATE_TIME)
             unregisterReceiver()
-            unregisterStepSensor()
             sharedPrefs?.unregisterOnSharedPreferenceChangeListener(prefListener)
             super.onDestroy()
         }
@@ -142,15 +139,12 @@ class EssentialsWatchFaceService : WallpaperService() {
             isVisibleState = visible
 
             if (visible) {
-                currentSteps = getSavedDailySteps()
                 updateThemeColor()
                 registerReceiver()
-                registerStepSensor()
                 calendar.timeZone = TimeZone.getDefault()
                 draw()
             } else {
                 unregisterReceiver()
-                unregisterStepSensor()
             }
 
             updateTimer()
@@ -174,74 +168,8 @@ class EssentialsWatchFaceService : WallpaperService() {
             } catch (_: Exception) { }
         }
 
-        private fun registerStepSensor() {
-            stepSensor?.let {
-                sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
-            }
-        }
-
-        private fun unregisterStepSensor() {
-            sensorManager?.unregisterListener(this)
-        }
-
-        private var stepCountPrefs: SharedPreferences? = null
-
-        private fun getStepPrefs(): SharedPreferences {
-            return stepCountPrefs ?: getSharedPreferences("watchface_steps_prefs", Context.MODE_PRIVATE).also {
-                stepCountPrefs = it
-            }
-        }
-
-        private fun getSavedDailySteps(): Int {
-            val prefs = getStepPrefs()
-            val savedDay = prefs.getInt("step_day_of_year", -1)
-            val currentDay = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
-            if (savedDay != currentDay) {
-                return 0
-            }
-            return prefs.getInt("daily_step_count", 0)
-        }
-
-        override fun onSensorChanged(event: SensorEvent?) {
-            val sensor = event?.sensor ?: return
-            val prefs = getStepPrefs()
-            val currentDay = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
-            val savedDay = prefs.getInt("step_day_of_year", -1)
-
-            if (sensor.type == Sensor.TYPE_STEP_COUNTER && event.values.isNotEmpty()) {
-                val sensorSteps = event.values[0].toInt()
-                var baseline = prefs.getInt("step_baseline", -1)
-                if (savedDay != currentDay || baseline < 0 || sensorSteps < baseline) {
-                    baseline = sensorSteps
-                    prefs.edit()
-                        .putInt("step_day_of_year", currentDay)
-                        .putInt("step_baseline", baseline)
-                        .putInt("daily_step_count", 0)
-                        .apply()
-                }
-                val calculated = (sensorSteps - baseline).coerceAtLeast(0)
-                currentSteps = calculated
-                prefs.edit().putInt("daily_step_count", currentSteps).apply()
-                draw()
-            } else if (sensor.type == Sensor.TYPE_STEP_DETECTOR) {
-                if (savedDay != currentDay) {
-                    currentSteps = 0
-                    prefs.edit()
-                        .putInt("step_day_of_year", currentDay)
-                        .putInt("daily_step_count", 0)
-                        .apply()
-                }
-                currentSteps++
-                prefs.edit().putInt("daily_step_count", currentSteps).apply()
-                draw()
-            }
-        }
-
-        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
-            currentSteps = getSavedDailySteps()
             val textSize = height * 0.28f
             textPaint.textSize = textSize
             val strokeW = height * 0.015f
@@ -294,35 +222,44 @@ class EssentialsWatchFaceService : WallpaperService() {
                 textPaint.textSize = height * 0.28f
             }
 
-            // Draw Edge Dials
             val strokeW = height * 0.015f
             trackPaint.strokeWidth = strokeW
             progressPaint.strokeWidth = strokeW
 
             val dialPadding = strokeW * 1.5f
             val dialRect = RectF(dialPadding, dialPadding, width - dialPadding, height - dialPadding)
-            val arcSpan = 70f // Span angle in degrees for each half dial
+            val radius = (width - 2f * dialPadding) / 2f
 
-            // 1. Left Dial: Battery Level (Sweep centered on Left: 180° - 35° to 180° + 35°)
-            val leftStartAngle = 180f - (arcSpan / 2f)
-            val batteryLevel = getWatchBatteryLevel()
-            val batterySweep = (batteryLevel / 100f).coerceIn(0f, 1f) * arcSpan
+            val iconSize = (height * 0.085f).toInt()
+            val iconInsetRadius = radius - (iconSize * 0.45f)
 
-            // Draw Left Track & Progress
+            val leftIconAngleRad = Math.toRadians(111.0)
+            val leftIconCenterX = centerX + iconInsetRadius * cos(leftIconAngleRad).toFloat()
+            val leftIconCenterY = centerY + iconInsetRadius * sin(leftIconAngleRad).toFloat()
+            drawTintedDrawable(canvas, watchIconDrawable, leftIconCenterX, leftIconCenterY, iconSize, getClockColor())
+
+            val rightIconAngleRad = Math.toRadians(69.0)
+            val rightIconCenterX = centerX + iconInsetRadius * cos(rightIconAngleRad).toFloat()
+            val rightIconCenterY = centerY + iconInsetRadius * sin(rightIconAngleRad).toFloat()
+            drawTintedDrawable(canvas, mobileIconDrawable, rightIconCenterX, rightIconCenterY, iconSize, getClockColor())
+
+            val leftStartAngle = 120f
+            val arcSpan = 30f
+            val watchBattery = getWatchBatteryLevel()
+            val watchSweep = (watchBattery / 100f).coerceIn(0f, 1f) * arcSpan
+
             canvas.drawArc(dialRect, leftStartAngle, arcSpan, false, trackPaint)
-            if (batterySweep > 0f) {
-                canvas.drawArc(dialRect, leftStartAngle, batterySweep, false, progressPaint)
+            if (watchSweep > 0f) {
+                canvas.drawArc(dialRect, leftStartAngle, watchSweep, false, progressPaint)
             }
 
-            // 2. Right Dial: Steps Count (Sweep centered on Right: 0° - 35° to 0° + 35°)
-            val rightStartAngle = 0f - (arcSpan / 2f)
-            val stepFraction = (currentSteps.toFloat() / dailyStepGoal.toFloat()).coerceIn(0f, 1f)
-            val stepsSweep = stepFraction * arcSpan
+            val rightStartAngle = 60f
+            val phoneBattery = getPhoneBatteryLevel()
+            val phoneSweep = -((phoneBattery / 100f).coerceIn(0f, 1f) * arcSpan)
 
-            // Draw Right Track & Progress
-            canvas.drawArc(dialRect, rightStartAngle, arcSpan, false, trackPaint)
-            if (stepsSweep > 0f) {
-                canvas.drawArc(dialRect, rightStartAngle, stepsSweep, false, progressPaint)
+            canvas.drawArc(dialRect, rightStartAngle, -arcSpan, false, trackPaint)
+            if (phoneBattery > 0) {
+                canvas.drawArc(dialRect, rightStartAngle, phoneSweep, false, progressPaint)
             }
 
             // Draw Centered Clock Text
@@ -338,6 +275,26 @@ class EssentialsWatchFaceService : WallpaperService() {
             canvas.drawText(minuteText, centerX, minuteY, textPaint)
         }
 
+        private fun drawTintedDrawable(
+            canvas: Canvas,
+            drawable: Drawable?,
+            cx: Float,
+            cy: Float,
+            size: Int,
+            color: Int
+        ) {
+            drawable ?: return
+            drawable.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
+            val half = size / 2
+            drawable.setBounds(
+                (cx - half).toInt(),
+                (cy - half).toInt(),
+                (cx + half).toInt(),
+                (cy + half).toInt()
+            )
+            drawable.draw(canvas)
+        }
+
         private fun getWatchBatteryLevel(): Int {
             return try {
                 val bm = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
@@ -345,6 +302,12 @@ class EssentialsWatchFaceService : WallpaperService() {
             } catch (_: Exception) {
                 100
             }
+        }
+
+        private fun getPhoneBatteryLevel(): Int {
+            val prefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+            val level = prefs.getInt("phone_battery_level", -1)
+            return if (level >= 0) level else 0
         }
 
         private fun updateTimer() {
