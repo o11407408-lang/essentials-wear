@@ -28,10 +28,13 @@ import android.os.Looper
 import android.os.Message
 import android.os.PowerManager
 import android.service.wallpaper.WallpaperService
+import android.util.Log
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import com.sameerasw.essentials.R
+import com.sameerasw.essentials.utils.HapticUtil
 import com.sameerasw.essentials.utils.ThemeUtil
 import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
@@ -105,6 +108,13 @@ class EssentialsWatchFaceService : WallpaperService() {
         private var stepsIconDrawable: Drawable? = null
         private var distanceIconDrawable: Drawable? = null
         private var fireIconDrawable: Drawable? = null
+        private var notifIconDrawable: Drawable? = null
+        private var musicIconDrawable: Drawable? = null
+        private var travelIconDrawable: Drawable? = null
+        private var soundIconDrawable: Drawable? = null
+        private var flashlightIconDrawable: Drawable? = null
+        private var vibrateIconDrawable: Drawable? = null
+        private var muteIconDrawable: Drawable? = null
         private var calendarIconDrawable: Drawable? = null
         private var alarmIconDrawable: Drawable? = null
 
@@ -188,6 +198,13 @@ class EssentialsWatchFaceService : WallpaperService() {
             stepsIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_steps_24)?.mutate()
             distanceIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_distance_24)?.mutate()
             fireIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_local_fire_department_24)?.mutate()
+            notifIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_mobile_text_2_24)?.mutate()
+            musicIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_music_note_24)?.mutate()
+            travelIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_directions_bus_24)?.mutate()
+            soundIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_volume_up_24)?.mutate()
+            flashlightIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_flashlight_on_24)?.mutate()
+            vibrateIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_mobile_vibrate_24)?.mutate()
+            muteIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_volume_off_24)?.mutate()
             calendarIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_calendar_today_24)?.mutate()
             alarmIconDrawable = ContextCompat.getDrawable(this@EssentialsWatchFaceService, R.drawable.rounded_alarm_24)?.mutate()
 
@@ -289,6 +306,97 @@ class EssentialsWatchFaceService : WallpaperService() {
                 }
             }
             return super.onCommand(action, x, y, z, extras, resultRequested)
+        }
+
+        private fun sendPhoneMessage(path: String, data: ByteArray = byteArrayOf()) {
+            val nodeClient = com.google.android.gms.wearable.Wearable.getNodeClient(this@EssentialsWatchFaceService)
+            nodeClient.connectedNodes.addOnSuccessListener { nodes ->
+                val messageClient = com.google.android.gms.wearable.Wearable.getMessageClient(this@EssentialsWatchFaceService)
+                for (node in nodes) {
+                    messageClient.sendMessage(node.id, path, data)
+                }
+            }
+        }
+
+        private fun openYourAndroidScreen() {
+            try {
+                val intent = Intent(this@EssentialsWatchFaceService, com.sameerasw.essentials.presentation.MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra(com.sameerasw.essentials.presentation.MainActivity.EXTRA_NAVIGATE_TO, com.sameerasw.essentials.presentation.MainActivity.NAV_YOUR_ANDROID)
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("EssentialsWatchFace", "Failed to launch Your Android screen", e)
+            }
+        }
+
+        private fun handleComplicationTap(compType: String) {
+            val prefs = sharedPrefs
+            when (compType) {
+                "DYNAMIC" -> {
+                    val flashlightOn = prefs?.getBoolean("phone_flashlight_on", false) ?: false
+                    val travelActive = prefs?.getBoolean("phone_travel_active", false) ?: false
+                    val syncLocationReachedEnabled = prefs?.getBoolean("phone_watch_sync_location_reached_enabled", true) ?: true
+                    val ringerMode = prefs?.getInt("phone_ringer_mode", 2) ?: 2
+
+                    if (flashlightOn) {
+                        // Toggle flashlight off
+                        HapticUtil.performClick(this@EssentialsWatchFaceService)
+                        sendPhoneMessage("/toggle_flashlight")
+                    } else if (travelActive && syncLocationReachedEnabled) {
+                        // Open Your Android screen
+                        HapticUtil.performClick(this@EssentialsWatchFaceService)
+                        openYourAndroidScreen()
+                    } else if (ringerMode != 2) {
+                        // Ringer is Silent (0) or Vibrate (1) -> switch to Sound (2)
+                        HapticUtil.performClick(this@EssentialsWatchFaceService)
+                        sendPhoneMessage("/toggle_sound_mode")
+                    } else {
+                        // None of the above -> open Your Android directly
+                        HapticUtil.performClick(this@EssentialsWatchFaceService)
+                        openYourAndroidScreen()
+                    }
+                }
+                "TRAVEL", "SOUND_MODE", "NOTIFICATIONS", "NOW_PLAYING", "PHONE_BATTERY" -> {
+                    HapticUtil.performClick(this@EssentialsWatchFaceService)
+                    openYourAndroidScreen()
+                }
+                else -> {
+                    HapticUtil.performClick(this@EssentialsWatchFaceService)
+                }
+            }
+        }
+
+        override fun onTouchEvent(event: MotionEvent?) {
+            super.onTouchEvent(event)
+            if (event?.action == MotionEvent.ACTION_UP && !isAmbient) {
+                val touchX = event.x
+                val touchY = event.y
+
+                val prefs = sharedPrefs
+                val showComplications = prefs?.getBoolean("watchface_show_complications", true) ?: true
+                if (showComplications) {
+                    val width = 454f // fallback or use measured width
+                    val height = 454f
+                    val centerY = height / 2f
+                    val circleRadius = height * 0.14f // touch target radius
+
+                    val leftCenterX = width * 0.12f
+                    val rightCenterX = width * 0.88f
+
+                    val distLeft = Math.hypot((touchX - leftCenterX).toDouble(), (touchY - centerY).toDouble()).toFloat()
+                    val distRight = Math.hypot((touchX - rightCenterX).toDouble(), (touchY - centerY).toDouble()).toFloat()
+
+                    val leftComplicationType = prefs?.getString("watchface_left_complication", "DYNAMIC") ?: "DYNAMIC"
+                    val rightComplicationType = prefs?.getString("watchface_right_complication", "STEPS") ?: "STEPS"
+
+                    if (distLeft <= circleRadius) {
+                        handleComplicationTap(leftComplicationType)
+                    } else if (distRight <= circleRadius) {
+                        handleComplicationTap(rightComplicationType)
+                    }
+                }
+            }
         }
 
         private fun registerReceiver() {
@@ -591,6 +699,35 @@ class EssentialsWatchFaceService : WallpaperService() {
                             canvas.drawCircle(compCenterX, centerY, circleRadius, circleOutlinePaint)
                         }
                         when (type) {
+                            "DYNAMIC" -> {
+                                val flashlightOn = prefs?.getBoolean("phone_flashlight_on", false) ?: false
+                                val travelActive = prefs?.getBoolean("phone_travel_active", false) ?: false
+                                val syncLocationReachedEnabled = prefs?.getBoolean("phone_watch_sync_location_reached_enabled", true) ?: true
+                                val ringerMode = prefs?.getInt("phone_ringer_mode", 2) ?: 2
+                                val travelTime = prefs?.getString("phone_travel_remaining_time", "") ?: ""
+                                val travelDist = prefs?.getString("phone_travel_remaining_distance", "") ?: ""
+
+                                if (flashlightOn) {
+                                    drawTintedDrawable(canvas, flashlightIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                    canvas.drawText("On", compCenterX, sideTextY, sideValuePaint)
+                                } else if (travelActive && syncLocationReachedEnabled) {
+                                    drawTintedDrawable(canvas, travelIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                    val travelText = when {
+                                        travelTime.isNotBlank() -> travelTime
+                                        travelDist.isNotBlank() -> travelDist
+                                        else -> "ETA"
+                                    }
+                                    canvas.drawText(travelText, compCenterX, sideTextY, sideValuePaint)
+                                } else if (ringerMode != 2) {
+                                    val icon = if (ringerMode == 1) vibrateIconDrawable else muteIconDrawable
+                                    drawTintedDrawable(canvas, icon ?: soundIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                    val modeText = if (ringerMode == 1) "Vib" else "Mute"
+                                    canvas.drawText(modeText, compCenterX, sideTextY, sideValuePaint)
+                                } else {
+                                    // Default state: Only mobile icon centered, no text
+                                    drawTintedDrawable(canvas, mobileIconDrawable, compCenterX, centerY, (sideIconSize * 1.15f).toInt(), accentColor)
+                                }
+                            }
                             "HEART_RATE" -> {
                                 drawTintedDrawable(canvas, heartIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
                                 val hrText = if (currentHeartRate > 0) currentHeartRate.toString() else "--"
@@ -612,6 +749,42 @@ class EssentialsWatchFaceService : WallpaperService() {
                                 val kcal = (currentSteps * 0.04f).toInt()
                                 val calText = if (kcal > 0) "${kcal}k" else "--"
                                 canvas.drawText(calText, compCenterX, sideTextY, sideValuePaint)
+                            }
+                            "NOTIFICATIONS" -> {
+                                drawTintedDrawable(canvas, notifIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                val count = try {
+                                    val notifJson = prefs?.getString("watch_notifications_json", "[]") ?: "[]"
+                                    org.json.JSONArray(notifJson).length()
+                                } catch (_: Exception) { 0 }
+                                val notifText = if (count > 0) count.toString() else "0"
+                                canvas.drawText(notifText, compCenterX, sideTextY, sideValuePaint)
+                            }
+                            "NOW_PLAYING" -> {
+                                drawTintedDrawable(canvas, musicIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                canvas.drawText("▶", compCenterX, sideTextY, sideValuePaint)
+                            }
+                            "TRAVEL" -> {
+                                drawTintedDrawable(canvas, travelIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                val travelActive = prefs?.getBoolean("phone_travel_active", false) ?: false
+                                val travelTime = prefs?.getString("phone_travel_remaining_time", "") ?: ""
+                                val travelDist = prefs?.getString("phone_travel_remaining_distance", "") ?: ""
+                                val travelText = when {
+                                    !travelActive -> "--"
+                                    travelTime.isNotBlank() -> travelTime
+                                    travelDist.isNotBlank() -> travelDist
+                                    else -> "ETA"
+                                }
+                                canvas.drawText(travelText, compCenterX, sideTextY, sideValuePaint)
+                            }
+                            "SOUND_MODE" -> {
+                                drawTintedDrawable(canvas, soundIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
+                                val ringerMode = prefs?.getInt("phone_ringer_mode", 2) ?: 2
+                                val modeText = when (ringerMode) {
+                                    0 -> "Mute"
+                                    1 -> "Vib"
+                                    else -> "Ring"
+                                }
+                                canvas.drawText(modeText, compCenterX, sideTextY, sideValuePaint)
                             }
                             "WATCH_BATTERY" -> {
                                 drawTintedDrawable(canvas, watchIconDrawable, compCenterX, sideIconY, sideIconSize, accentColor)
