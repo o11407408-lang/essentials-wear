@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -16,6 +17,7 @@ import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import androidx.core.content.res.ResourcesCompat
 import com.sameerasw.essentials.R
+import com.sameerasw.essentials.utils.ThemeUtil
 import java.lang.ref.WeakReference
 import java.util.Calendar
 import java.util.Locale
@@ -31,6 +33,14 @@ class EssentialsWatchFaceService : WallpaperService() {
 
         private val updateTimeHandler = EngineHandler(this)
         private var timeZoneReceiverRegistered = false
+        private var sharedPrefs: SharedPreferences? = null
+
+        private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "theme_primary_color") {
+                updateThemeColor()
+                draw()
+            }
+        }
 
         private val timeZoneReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -57,18 +67,31 @@ class EssentialsWatchFaceService : WallpaperService() {
             }
 
             textPaint = Paint().apply {
-                color = Color.WHITE
+                color = getClockColor()
                 typeface = customTypeface ?: Typeface.DEFAULT
-                // Variable font settings: 'ROND' 100 (rounded), 'wdth' 125 (wider), 'wght' 300 (thinner)
+                // Variable font settings: 'ROND' 100 (rounded), 'wdth' 150 (wider), 'wght' 100 (thinner)
                 fontVariationSettings = "'ROND' 100.0, 'wdth' 150.0, 'wght' 100.0"
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
             }
+
+            sharedPrefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+            sharedPrefs?.registerOnSharedPreferenceChangeListener(prefListener)
+        }
+
+        private fun getClockColor(): Int {
+            val themeColor = ThemeUtil.getThemeColor(this@EssentialsWatchFaceService)
+            return themeColor?.let { ThemeUtil.getLightAccentColor(it) } ?: 0xFFB39DDB.toInt()
+        }
+
+        private fun updateThemeColor() {
+            textPaint.color = getClockColor()
         }
 
         override fun onDestroy() {
             updateTimeHandler.removeMessages(MSG_UPDATE_TIME)
             unregisterReceiver()
+            sharedPrefs?.unregisterOnSharedPreferenceChangeListener(prefListener)
             super.onDestroy()
         }
 
@@ -77,6 +100,7 @@ class EssentialsWatchFaceService : WallpaperService() {
             isVisibleState = visible
 
             if (visible) {
+                updateThemeColor()
                 registerReceiver()
                 calendar.timeZone = TimeZone.getDefault()
                 draw()
