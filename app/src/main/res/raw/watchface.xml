@@ -1,0 +1,20 @@
+<WatchFace width="450" height="450" clipShape="CIRCLE">
+    <Metadata key="CLOCK_TYPE" value="DIGITAL" />
+    <Metadata key="PREVIEW_TIME" value="10:09:30" />
+
+    <Scene backgroundColor="#000000">
+        <!-- Hour Line (12h format with leading zero) -->
+        <DigitalClock x="0" y="50" width="450" height="175">
+            <TimeText format="hh" hourFormat="12" align="CENTER" x="0" y="0" width="450" height="175">
+                <Font family="google_sans_flex" size="170" color="#FFFFFF" weight="700" />
+            </TimeText>
+        </DigitalClock>
+
+        <!-- Minute Line (leading zero) -->
+        <DigitalClock x="0" y="225" width="450" height="175">
+            <TimeText format="mm" align="CENTER" x="0" y="0" width="450" height="175">
+                <Font family="google_sans_flex" size="170" color="#FFFFFF" weight="700" />
+            </TimeText>
+        </DigitalClock>
+    </Scene>
+</WatchFace>

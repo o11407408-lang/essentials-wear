@@ -39,4 +39,5 @@
     <string name="call_action_end">End</string>
     <string name="call_action_mute">Mute</string>
     <string name="no_alarms">No Alarms</string>
+    <string name="watch_face_name">Essentials</string>
 </resources>
