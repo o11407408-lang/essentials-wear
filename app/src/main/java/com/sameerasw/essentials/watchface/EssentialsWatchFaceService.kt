@@ -86,8 +86,7 @@ class EssentialsWatchFaceService : WallpaperService() {
             textPaint = Paint().apply {
                 color = getClockColor()
                 typeface = customTypeface ?: Typeface.DEFAULT
-                // Variable font settings: 'ROND' 100 (rounded), 'wdth' 150 (wider), 'wght' 100 (thinner)
-                fontVariationSettings = "'ROND' 100.0, 'wdth' 150.0, 'wght' 100.0"
+                fontVariationSettings = "'ROND' 100.0, 'wdth' 150.0, 'wght' 200.0"
                 isAntiAlias = true
                 textAlign = Paint.Align.CENTER
             }
@@ -182,7 +181,7 @@ class EssentialsWatchFaceService : WallpaperService() {
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
-            val textSize = height * 0.28f
+            val textSize = height * 0.25f
             textPaint.textSize = textSize
             val strokeW = height * 0.015f
             trackPaint.strokeWidth = strokeW
@@ -231,47 +230,72 @@ class EssentialsWatchFaceService : WallpaperService() {
             val centerY = height / 2f
 
             if (textPaint.textSize == 0f) {
-                textPaint.textSize = height * 0.28f
+                textPaint.textSize = height * 0.25f
             }
 
-            val strokeW = height * 0.015f
-            trackPaint.strokeWidth = strokeW
-            progressPaint.strokeWidth = strokeW
-
-            val dialPadding = strokeW * 1.5f
-            val dialRect = RectF(dialPadding, dialPadding, width - dialPadding, height - dialPadding)
-            val radius = (width - 2f * dialPadding) / 2f
-
-            val iconSize = (height * 0.085f).toInt()
-            val iconInsetRadius = radius - (iconSize * 0.45f)
-
-            val leftIconAngleRad = Math.toRadians(111.0)
-            val leftIconCenterX = centerX + iconInsetRadius * cos(leftIconAngleRad).toFloat()
-            val leftIconCenterY = centerY + iconInsetRadius * sin(leftIconAngleRad).toFloat()
-            drawTintedDrawable(canvas, watchIconDrawable, leftIconCenterX, leftIconCenterY, iconSize, Color.WHITE, 111f - 90f)
-
-            val rightIconAngleRad = Math.toRadians(69.0)
-            val rightIconCenterX = centerX + iconInsetRadius * cos(rightIconAngleRad).toFloat()
-            val rightIconCenterY = centerY + iconInsetRadius * sin(rightIconAngleRad).toFloat()
-            drawTintedDrawable(canvas, mobileIconDrawable, rightIconCenterX, rightIconCenterY, iconSize, Color.WHITE, 69f - 90f)
-
-            val leftStartAngle = 120f
-            val arcSpan = 30f
-            val watchBattery = getWatchBatteryLevel()
-            val watchSweep = (watchBattery / 100f).coerceIn(0f, 1f) * arcSpan
-
-            canvas.drawArc(dialRect, leftStartAngle, arcSpan, false, trackPaint)
-            if (watchSweep > 0f) {
-                canvas.drawArc(dialRect, leftStartAngle, watchSweep, false, progressPaint)
+            // Set font weight based on Ambient/AOD mode (200 in interactive, 50 in AOD)
+            textPaint.fontVariationSettings = if (isAmbient) {
+                "'ROND' 100.0, 'wdth' 150.0, 'wght' 50.0"
+            } else {
+                "'ROND' 100.0, 'wdth' 150.0, 'wght' 200.0"
             }
 
-            val rightStartAngle = 60f
-            val phoneBattery = getPhoneBatteryLevel()
-            val phoneSweep = -((phoneBattery / 100f).coerceIn(0f, 1f) * arcSpan)
+            if (!isAmbient) {
+                val strokeW = height * 0.015f
+                trackPaint.strokeWidth = strokeW
+                progressPaint.strokeWidth = strokeW
 
-            canvas.drawArc(dialRect, rightStartAngle, -arcSpan, false, trackPaint)
-            if (phoneBattery > 0) {
-                canvas.drawArc(dialRect, rightStartAngle, phoneSweep, false, progressPaint)
+                val dialPadding = strokeW * 1.5f
+                val dialRect = RectF(dialPadding, dialPadding, width - dialPadding, height - dialPadding)
+                val radius = (width - 2f * dialPadding) / 2f
+
+                val iconSize = (height * 0.085f).toInt()
+                val iconInsetRadius = radius - (iconSize * 0.45f)
+
+                val leftIconAngleRad = Math.toRadians(111.0)
+                val leftIconCenterX = centerX + iconInsetRadius * cos(leftIconAngleRad).toFloat()
+                val leftIconCenterY = centerY + iconInsetRadius * sin(leftIconAngleRad).toFloat()
+                drawTintedDrawable(canvas, watchIconDrawable, leftIconCenterX, leftIconCenterY, iconSize, Color.WHITE, 111f - 90f)
+
+                val rightIconAngleRad = Math.toRadians(69.0)
+                val rightIconCenterX = centerX + iconInsetRadius * cos(rightIconAngleRad).toFloat()
+                val rightIconCenterY = centerY + iconInsetRadius * sin(rightIconAngleRad).toFloat()
+                drawTintedDrawable(canvas, mobileIconDrawable, rightIconCenterX, rightIconCenterY, iconSize, Color.WHITE, 69f - 90f)
+
+                val leftStartAngle = 120f
+                val arcSpan = 30f
+                val watchBattery = getWatchBatteryLevel()
+                val watchSweep = (watchBattery / 100f).coerceIn(0f, 1f) * arcSpan
+
+                canvas.drawArc(dialRect, leftStartAngle, arcSpan, false, trackPaint)
+                if (watchSweep > 0f) {
+                    canvas.drawArc(dialRect, leftStartAngle, watchSweep, false, progressPaint)
+                }
+
+                val rightStartAngle = 60f
+                val phoneBattery = getPhoneBatteryLevel()
+                val phoneSweep = -((phoneBattery / 100f).coerceIn(0f, 1f) * arcSpan)
+
+                canvas.drawArc(dialRect, rightStartAngle, -arcSpan, false, trackPaint)
+                if (phoneBattery > 0) {
+                    canvas.drawArc(dialRect, rightStartAngle, phoneSweep, false, progressPaint)
+                }
+
+                // Draw Curved Date Text at bottom center
+                val dateText = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(calendar.time)
+                datePaint.color = Color.WHITE
+                datePaint.textSize = height * 0.070f
+                val dateRadius = height * 0.37f
+                val datePathRect = RectF(
+                    centerX - dateRadius,
+                    centerY - dateRadius,
+                    centerX + dateRadius,
+                    centerY + dateRadius
+                )
+                val datePath = Path().apply {
+                    addArc(datePathRect, 140f, -100f)
+                }
+                canvas.drawTextOnPath(dateText, datePath, 0f, 0f, datePaint)
             }
 
             // Draw Centered Clock Text
@@ -279,28 +303,12 @@ class EssentialsWatchFaceService : WallpaperService() {
             textPaint.getTextBounds("88", 0, 2, textBounds)
             val textHeight = textBounds.height().toFloat()
 
-            val lineSpacing = 7f
+            val lineSpacing = 6f
             val hourY = centerY - lineSpacing
             val minuteY = centerY + textHeight + lineSpacing
 
             canvas.drawText(hourText, centerX, hourY, textPaint)
             canvas.drawText(minuteText, centerX, minuteY, textPaint)
-
-            // Draw Curved Date Text at bottom center
-            val dateText = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(calendar.time)
-            datePaint.color = Color.WHITE
-            datePaint.textSize = height * 0.070f
-            val dateRadius = height * 0.37f
-            val datePathRect = RectF(
-                centerX - dateRadius,
-                centerY - dateRadius,
-                centerX + dateRadius,
-                centerY + dateRadius
-            )
-            val datePath = Path().apply {
-                addArc(datePathRect, 140f, -100f)
-            }
-            canvas.drawTextOnPath(dateText, datePath, 0f, 0f, datePaint)
         }
 
         private fun drawTintedDrawable(
