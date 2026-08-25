@@ -28,13 +28,21 @@ import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.google.android.gms.wearable.Wearable
 import com.sameerasw.essentials.R
 import com.sameerasw.essentials.presentation.components.EssentialsChip
@@ -67,6 +75,11 @@ fun SettingsScreen() {
     val isSyncEnabled = remember { mutableStateOf(prefs.getBoolean("phone_watch_sync_sound_mode_enabled", false)) }
     val isNotificationSoundsEnabled = remember { mutableStateOf(prefs.getBoolean("prefs_notification_sounds_enabled", true)) }
     val isNotificationOverlayEnabled = remember { mutableStateOf(prefs.getBoolean("prefs_notification_overlay_enabled", true)) }
+    val isClockBatteryPercentEnabled = remember { mutableStateOf(prefs.getBoolean("prefs_clock_battery_percent_enabled", true)) }
+
+    // Theme color selection state - drives the swatch row below and is written to ThemeUtil immediately on tap
+    var colorMode by remember { mutableStateOf(ThemeUtil.getColorMode(context)) }
+    var customColor by remember { mutableStateOf(ThemeUtil.getCustomColor(context)) }
 
     DisposableEffect(Unit) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
@@ -74,6 +87,7 @@ fun SettingsScreen() {
                 "phone_watch_sync_sound_mode_enabled" -> isSyncEnabled.value = p.getBoolean(key, false)
                 "prefs_notification_sounds_enabled" -> isNotificationSoundsEnabled.value = p.getBoolean(key, true)
                 "prefs_notification_overlay_enabled" -> isNotificationOverlayEnabled.value = p.getBoolean(key, true)
+                "prefs_clock_battery_percent_enabled" -> isClockBatteryPercentEnabled.value = p.getBoolean(key, true)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -111,6 +125,55 @@ fun SettingsScreen() {
                 text = stringResource(R.string.feature_settings),
                 color = lightAccentColor
             )
+        }
+
+        // Theme Color section
+        item {
+            Text(
+                text = "Theme Color",
+                style = androidx.compose.ui.text.TextStyle(
+                    fontFamily = com.sameerasw.essentials.presentation.theme.GoogleSansFlexRoundedWide,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = lightAccentColor
+                ),
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
+
+        item {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+            ) {
+                item {
+                    SystemColorSwatch(
+                        selected = colorMode == ThemeUtil.COLOR_MODE_SYSTEM,
+                        onClick = {
+                            HapticUtil.performUIHaptic(view)
+                            ThemeUtil.setSystemColorMode(context)
+                            colorMode = ThemeUtil.COLOR_MODE_SYSTEM
+                        }
+                    )
+                }
+                items(ThemeUtil.FIXED_PALETTE) { paletteColor ->
+                    FixedColorSwatch(
+                        color = Color(paletteColor),
+                        selected = colorMode == ThemeUtil.COLOR_MODE_CUSTOM && customColor == paletteColor,
+                        onClick = {
+                            HapticUtil.performUIHaptic(view)
+                            ThemeUtil.setCustomColor(context, paletteColor)
+                            colorMode = ThemeUtil.COLOR_MODE_CUSTOM
+                            customColor = paletteColor
+                        }
+                    )
+                }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(4.dp))
         }
 
         // Sync Sound Mode Toggle
@@ -224,6 +287,39 @@ fun SettingsScreen() {
             )
         }
 
+        // Battery % on Clock Face Toggle
+        item {
+            ToggleChip(
+                checked = isClockBatteryPercentEnabled.value,
+                onCheckedChange = { checked ->
+                    HapticUtil.performUIHaptic(view)
+                    isClockBatteryPercentEnabled.value = checked
+                    prefs.edit().putBoolean("prefs_clock_battery_percent_enabled", checked).apply()
+                },
+                label = { Text("Battery % on Clock", maxLines = 1) },
+                appIcon = {
+                    Icon(
+                        painter = painterResource(id = R.drawable.rounded_battery_android_frame_full_24),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
+                toggleControl = {
+                    Switch(
+                        checked = isClockBatteryPercentEnabled.value,
+                        enabled = true
+                    )
+                },
+                colors = ToggleChipDefaults.toggleChipColors(
+                    checkedStartBackgroundColor = tonedThemeColor,
+                    checkedEndBackgroundColor = tonedThemeColor,
+                    uncheckedStartBackgroundColor = tonedThemeColor.copy(alpha = 0.5f),
+                    uncheckedEndBackgroundColor = tonedThemeColor.copy(alpha = 0.5f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         item {
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -320,6 +416,63 @@ fun SettingsScreen() {
                 border = ChipDefaults.chipBorder(
                     borderStroke = null
                 )
+            )
+        }
+    }
+}
+
+/** Circular swatch representing "System" mode: shows a mini rainbow so it never claims to be black/off. */
+@Composable
+private fun SystemColorSwatch(selected: Boolean, onClick: () -> Unit) {
+    val brush = androidx.compose.ui.graphics.Brush.sweepGradient(
+        ThemeUtil.FIXED_PALETTE.map { Color(it) }
+    )
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(brush)
+            .border(
+                width = if (selected) 2.dp else 0.dp,
+                color = Color.White,
+                shape = CircleShape
+            )
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        if (selected) {
+            Icon(
+                painter = painterResource(id = R.drawable.rounded_check_24),
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = Color.White
+            )
+        }
+    }
+}
+
+/** Circular swatch for one of the 10 fixed Material You colors. */
+@Composable
+private fun FixedColorSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(color)
+            .border(
+                width = if (selected) 2.dp else 0.dp,
+                color = Color.White,
+                shape = CircleShape
+            )
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        if (selected) {
+            Icon(
+                painter = painterResource(id = R.drawable.rounded_check_24),
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = Color.White
             )
         }
     }
