@@ -72,8 +72,22 @@ fun EssentialsTimeText(
         }
     }
 
-    val themeColor = remember { ThemeUtil.getThemeColor(context) }
-    val lightAccentColor = themeColor?.let {
+    // Theme color is now reactive: if the user changes it in Settings (system <-> one of the
+    // 10 fixed colors), this updates immediately without needing to reopen the app.
+    var themeColorInt by remember { mutableStateOf(ThemeUtil.getThemeColor(context)) }
+    DisposableEffect(context) {
+        val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key in ThemeUtil.WATCHED_PREF_KEYS) {
+                themeColorInt = ThemeUtil.getThemeColor(context)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+    val lightAccentColor = themeColorInt?.let {
         Color(ThemeUtil.getLightAccentColor(it))
     } ?: Color(0xFFB39DDB.toInt())
 
@@ -296,4 +310,3 @@ fun EssentialsTimeText(
         }
     }
 }
-
