@@ -21,8 +21,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,10 +79,23 @@ fun AppLauncherScreen() {
     val view = LocalView.current
     val pm = context.packageManager
 
-    // Theme integration
-    val themeColor = remember { ThemeUtil.getThemeColor(context) }
-    val tonedColor = themeColor?.let { Color(ThemeUtil.getTonedColor(it)) } ?: Color(0xFF1E1E1E)
-    
+    // Theme integration - reactive so a color change in Settings applies here immediately too,
+    // without needing to relaunch the app drawer.
+    var themeColorInt by remember { mutableStateOf(ThemeUtil.getThemeColor(context)) }
+    DisposableEffect(context) {
+        val prefs = context.getSharedPreferences("schedule_prefs", android.content.Context.MODE_PRIVATE)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key in ThemeUtil.WATCHED_PREF_KEYS) {
+                themeColorInt = ThemeUtil.getThemeColor(context)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+    val tonedColor = themeColorInt?.let { Color(ThemeUtil.getTonedColor(it)) } ?: Color(0xFF1E1E1E)
+
     val apps = remember {
         val intent = Intent(Intent.ACTION_MAIN, null).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
@@ -102,7 +119,9 @@ fun AppLauncherScreen() {
             }
     }
 
-    Scaffold {
+    Scaffold(
+        modifier = Modifier.background(Color.Black) // always pure black, regardless of theme color
+    ) {
         ScalingLazyColumn(
             modifier = Modifier.fillMaxSize(),
             state = listState,
