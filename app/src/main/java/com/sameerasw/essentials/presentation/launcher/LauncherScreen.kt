@@ -11,6 +11,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -43,6 +44,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -64,9 +66,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
 import androidx.compose.ui.platform.LocalContext
@@ -131,8 +137,28 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
     val focusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
 
-    // Theme colors
-    val themeColor = remember { ThemeUtil.getThemeColor(context) }
+    // Theme colors - reactive so a change made in Settings (system <-> fixed color) applies
+    // immediately here without needing to relaunch the app.
+    var themeColor by remember { mutableStateOf(ThemeUtil.getThemeColor(context)) }
+    var showBatteryPercentOnClock by remember {
+        mutableStateOf(context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+            .getBoolean("prefs_clock_battery_percent_enabled", true))
+    }
+    DisposableEffect(context) {
+        val themePrefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+            if (key in ThemeUtil.WATCHED_PREF_KEYS) {
+                themeColor = ThemeUtil.getThemeColor(context)
+            }
+            if (key == "prefs_clock_battery_percent_enabled") {
+                showBatteryPercentOnClock = p.getBoolean(key, true)
+            }
+        }
+        themePrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            themePrefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
     val lightAccentColor = themeColor?.let {
         Color(ThemeUtil.getLightAccentColor(it))
     } ?: Color(0xFFB39DDB.toInt())
@@ -141,12 +167,13 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
         Color(ThemeUtil.getTonedColor(it))
     } ?: Color.DarkGray
 
-    // Clock state
+    // Clock state - ticks slower while ambient (AOD) since only minute precision is ever shown,
+    // and this cuts down on unnecessary CPU wake-ups to save battery in that mode.
     var currentTime by remember { mutableStateOf(LocalTime.now()) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(isAmbient) {
         while (true) {
             currentTime = LocalTime.now()
-            delay(1000)
+            delay(if (isAmbient) 15000 else 1000)
         }
     }
     val timeFormatter = remember { DateTimeFormatter.ofPattern("hh:mm") }
@@ -408,7 +435,9 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
     Scaffold(
         timeText = {
             AnimatedVisibility(
-                visible = !isAmbient,
+                // Fully hidden in ambient (AOD), and also hidden on the clock face specifically
+                // when the "Battery % on Clock" toggle is off, so only the hour digits remain.
+                visible = !isAmbient && !(pagerState.currentPage == 1 && !showBatteryPercentOnClock),
                 enter = fadeIn() + slideInVertically(),
                 exit = fadeOut() + slideOutVertically()
             ) {
@@ -423,10 +452,11 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color.Black) // always pure black background, independent of theme color
                 .onRotaryScrollEvent { event ->
                     if (isAmbient) return@onRotaryScrollEvent false
                     val rawDelta = event.verticalScrollPixels
-                    val pageAnim = tween<Float>(durationMillis = 600)
+                    val pageAnim = spring<Float>(dampingRatio = 0.85f, stiffness = 300f)
                     when (pagerState.currentPage) {
                         0 -> {
                             // Unified scrolling for QS: scroll down at bottom goes to clock
@@ -489,6 +519,8 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
                         notifications = notifications,
                         listState = notifListState,
                         lightAccentColor = lightAccentColor,
+                        pagerState = pagerState,
+                        scope = scope,
                         onDismiss = { key -> dismissNotificationOnPhoneAndWatch(key) },
                         onClearAll = { clearAllNotificationsOnWatchAndPhone() },
                         onSelectDetail = { notif -> detailTargetNotification = notif }
@@ -508,10 +540,32 @@ fun LauncherScreen(crownEvents: SharedFlow<CrownAction>, isAmbient: Boolean = fa
                 )
             }
 
+            // Always-on Display: only the clock digits (drawn by ClockFacePage above) plus a
+            // thin outline hugging the screen edge remain - everything else is already gated
+            // behind "!isAmbient" elsewhere on this screen.
+            AnimatedVisibility(
+                visible = isAmbient,
+                enter = fadeIn(animationSpec = tween(400)),
+                exit = fadeOut(animationSpec = tween(200)),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                val isRound = androidx.compose.ui.platform.LocalConfiguration.current.isScreenRound
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(2.dp)
+                        .border(
+                            width = 1.dp,
+                            color = lightAccentColor.copy(alpha = 0.35f),
+                            shape = if (isRound) CircleShape else RoundedCornerShape(28.dp)
+                        )
+                )
+            }
+
             AnimatedVisibility(
                 visible = activeNewNotification != null && !isAmbient,
                 enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+                exit = fadeOut(animationSpec = tween(100)),
                 modifier = Modifier.fillMaxSize()
             ) {
                 activeNewNotification?.let { notif ->
@@ -915,6 +969,8 @@ fun NotificationsPage(
     notifications: List<WatchNotificationItem>,
     listState: ScalingLazyListState,
     lightAccentColor: Color,
+    pagerState: PagerState,
+    scope: kotlinx.coroutines.CoroutineScope,
     onDismiss: (String) -> Unit,
     onClearAll: () -> Unit,
     onSelectDetail: (WatchNotificationItem) -> Unit
@@ -934,8 +990,40 @@ fun NotificationsPage(
             }
     }
 
+    // Swipe down while the list is already scrolled to the very top returns to the clock face.
+    // ScalingLazyColumn's own boundary handling doesn't reliably hand the leftover drag off to
+    // VerticalPager, so we intercept it explicitly here via nested scroll - mirroring the same
+    // "atTop" check already used for the rotary crown. Because this connection only exists on
+    // this page's own content, the gesture is naturally impossible while already on the clock.
+    var returnDragAccumulator by remember { mutableStateOf(0f) }
+    val returnThresholdPx = 140f
+    val nestedScrollConnection = remember(pagerState) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val atTop = listState.centerItemIndex <= 0 && listState.centerItemScrollOffset <= 0
+                if (available.y > 0f && atTop) {
+                    returnDragAccumulator += available.y
+                    if (returnDragAccumulator > returnThresholdPx) {
+                        returnDragAccumulator = 0f
+                        HapticUtil.performPageSwitchHaptic(view)
+                        scope.launch {
+                            pagerState.animateScrollToPage(1, animationSpec = spring(dampingRatio = 0.85f, stiffness = 300f))
+                        }
+                    }
+                    // Absorb the delta ourselves so it doesn't bleed into the list's own
+                    // already-exhausted scroll/overscroll handling.
+                    return available
+                }
+                returnDragAccumulator = 0f
+                return Offset.Zero
+            }
+        }
+    }
+
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(nestedScrollConnection),
         contentAlignment = Alignment.TopCenter
     ) {
         Column(
@@ -1051,6 +1139,7 @@ fun WatchNotificationCardItem(
     val scope = rememberCoroutineScope()
     var dismissed by remember { mutableStateOf(false) }
     val offsetX = remember { Animatable(0f) }
+    val screenWidthPx = remember { view.width.toFloat().coerceAtLeast(1f) }
     val swipeState = rememberDraggableState { delta ->
         scope.launch { offsetX.snapTo(offsetX.value + delta) }
     }
@@ -1067,9 +1156,12 @@ fun WatchNotificationCardItem(
         if (dismissed) onDismiss(notif.key)
     }
 
+    // The horizontal fly-off is handled entirely by our own offsetX animation below - the
+    // exit here only fades/collapses, so it no longer stacks on top of the live translationX
+    // (that stacking is what previously sent the card overshooting past the screen edge).
     AnimatedVisibility(
         visible = !dismissed,
-        exit = slideOutHorizontally(targetOffsetX = { if (offsetX.value >= 0f) it else -it }) + shrinkVertically()
+        exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(animationSpec = tween(160))
     ) {
         val interactiveModifier = if (!notif.isMedia) {
             baseModifier
@@ -1078,9 +1170,25 @@ fun WatchNotificationCardItem(
                     state = swipeState,
                     orientation = Orientation.Horizontal,
                     onDragStopped = { velocity ->
-                        if (kotlin.math.abs(offsetX.value) > 80f || kotlin.math.abs(velocity) > 300f) {
+                        val pastThreshold = kotlin.math.abs(offsetX.value) > 80f || kotlin.math.abs(velocity) > 300f
+                        if (pastThreshold) {
                             HapticUtil.performUIHaptic(view)
-                            dismissed = true
+                            // Fly the card fully off-screen in the direction of the swipe,
+                            // continuing the finger's velocity, then remove it once clear.
+                            val direction = if (offsetX.value != 0f) {
+                                if (offsetX.value > 0f) 1f else -1f
+                            } else {
+                                if (velocity > 0f) 1f else -1f
+                            }
+                            val target = direction * (screenWidthPx + 120f)
+                            scope.launch {
+                                offsetX.animateTo(
+                                    targetValue = target,
+                                    animationSpec = tween(durationMillis = 220, easing = FastOutLinearInEasing),
+                                    initialVelocity = velocity
+                                )
+                                dismissed = true
+                            }
                         } else {
                             scope.launch {
                                 offsetX.animateTo(
@@ -1197,10 +1305,19 @@ fun NewNotificationOverlay(
     onInteraction: () -> Unit
 ) {
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
     val scrollState = rememberScalingLazyListState()
 
     var totalDragX by remember { mutableStateOf(0f) }
     var totalDragY by remember { mutableStateOf(0f) }
+    var dragMode by remember { mutableStateOf(0) } // 0 = none/scroll, 1 = horizontal (dismiss notif), 2 = vertical (dismiss overlay)
+
+    // Live drag offset so the overlay actually follows the finger, and then flies fully
+    // off-screen in that same direction once released - instead of always jumping straight up.
+    val offsetX = remember { Animatable(0f) }
+    val offsetY = remember { Animatable(0f) }
+    val screenWidthPx = remember { view.width.toFloat().coerceAtLeast(1f) }
+    val screenHeightPx = remember { view.height.toFloat().coerceAtLeast(1f) }
 
     LaunchedEffect(scrollState.isScrollInProgress) {
         if (scrollState.isScrollInProgress) {
@@ -1211,6 +1328,10 @@ fun NewNotificationOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer {
+                translationX = offsetX.value
+                translationY = offsetY.value
+            }
             .background(Color.Black)
             .clickable(enabled = false) {}
             .pointerInput(Unit) {
@@ -1218,29 +1339,67 @@ fun NewNotificationOverlay(
                     onDragStart = {
                         totalDragX = 0f
                         totalDragY = 0f
+                        dragMode = 0
                     },
                     onDragEnd = {
-                        if (totalDragY > 60f) {
-                            onDismissOverlay()
-                        } else if (kotlin.math.abs(totalDragX) > 70f) {
-                            HapticUtil.performUIHaptic(view)
-                            onDismissNotification()
+                        when (dragMode) {
+                            2 -> {
+                                if (totalDragY > 60f) {
+                                    HapticUtil.performUIHaptic(view)
+                                    scope.launch {
+                                        offsetY.animateTo(
+                                            targetValue = screenHeightPx + 120f,
+                                            animationSpec = tween(220, easing = FastOutLinearInEasing)
+                                        )
+                                        onDismissOverlay()
+                                    }
+                                } else {
+                                    scope.launch {
+                                        offsetY.animateTo(0f, animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f))
+                                    }
+                                }
+                            }
+                            1 -> {
+                                if (kotlin.math.abs(totalDragX) > 70f) {
+                                    HapticUtil.performUIHaptic(view)
+                                    val direction = if (totalDragX > 0f) 1f else -1f
+                                    scope.launch {
+                                        offsetX.animateTo(
+                                            targetValue = direction * (screenWidthPx + 120f),
+                                            animationSpec = tween(220, easing = FastOutLinearInEasing)
+                                        )
+                                        onDismissNotification()
+                                    }
+                                } else {
+                                    scope.launch {
+                                        offsetX.animateTo(0f, animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f))
+                                    }
+                                }
+                            }
                         }
                         onInteraction()
                     },
                     onDragCancel = {
+                        scope.launch {
+                            offsetX.animateTo(0f, animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f))
+                            offsetY.animateTo(0f, animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f))
+                        }
                         onInteraction()
                     },
                     onDrag = { change, dragAmount ->
                         val atTop = scrollState.centerItemIndex <= 0 && scrollState.centerItemScrollOffset <= 0
-                        
+
                         // Vertical swipe down at top to dismiss overlay (like switching home pages)
-                        if (dragAmount.y > kotlin.math.abs(dragAmount.x) && atTop) {
+                        if ((dragMode == 2 || dragMode == 0) && dragAmount.y > kotlin.math.abs(dragAmount.x) && atTop) {
+                            dragMode = 2
                             totalDragY += dragAmount.y
+                            scope.launch { offsetY.snapTo((offsetY.value + dragAmount.y).coerceAtLeast(0f)) }
                             change.consume()
-                        } else if (kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
+                        } else if ((dragMode == 1 || dragMode == 0) && kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
                             // Horizontal swipe to dismiss notification
+                            dragMode = 1
                             totalDragX += dragAmount.x
+                            scope.launch { offsetX.snapTo(offsetX.value + dragAmount.x) }
                             change.consume()
                         } else {
                             // Let ScalingLazyColumn handle normal scrolling
